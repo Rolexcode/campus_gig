@@ -66,6 +66,7 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
 FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON=
+FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64=
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=CampusGig <onboarding@resend.dev>
 ADMIN_EMAILS=
@@ -76,9 +77,10 @@ CAMPUSGIG_PLATFORM_FEE_BPS=500
 ```
 
 Local development may instead use `GOOGLE_APPLICATION_CREDENTIALS` pointing to
-a service-account JSON outside the repository. On Vercel, paste the minified
-JSON as `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`; a Windows path does not exist in
-the deployment environment. Never commit secrets or `.env.local`.
+a service-account JSON outside the repository. On Vercel, use the base64 form as
+`FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64`; this avoids multiline private-key
+parsing issues, and a Windows path does not exist in the deployment environment.
+Never commit secrets or `.env.local`.
 
 ## Devnet payment test
 

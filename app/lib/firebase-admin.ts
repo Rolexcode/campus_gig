@@ -6,15 +6,33 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 function configuredCredential() {
+  const base64ServiceAccount = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64?.trim();
+  if (base64ServiceAccount && !base64ServiceAccount.startsWith("replace_")) {
+    try {
+      const decoded = Buffer.from(base64ServiceAccount, "base64").toString("utf8");
+      return cert(JSON.parse(decoded));
+    } catch {
+      throw new Error(
+        "Firebase Admin is not configured. FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64 is invalid.",
+      );
+    }
+  }
+
   const inlineServiceAccount = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON?.trim();
   if (inlineServiceAccount && !inlineServiceAccount.startsWith("replace_")) {
-    return cert(JSON.parse(inlineServiceAccount));
+    try {
+      return cert(JSON.parse(inlineServiceAccount));
+    } catch {
+      throw new Error(
+        "Firebase Admin is not configured. FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON is invalid.",
+      );
+    }
   }
 
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   if (!credentialsPath || credentialsPath.startsWith("replace_") || !existsSync(credentialsPath)) {
     throw new Error(
-      "Firebase Admin is not configured. Set GOOGLE_APPLICATION_CREDENTIALS to the absolute path of your Firebase service-account JSON file.",
+      "Firebase Admin is not configured. Set FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64 on Vercel or GOOGLE_APPLICATION_CREDENTIALS locally.",
     );
   }
 
