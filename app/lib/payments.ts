@@ -5,7 +5,7 @@ import type { MarketplacePayment, MarketplacePaymentStatus } from "./gigs";
 import { ApiAuthError } from "./server-auth";
 
 export const USDC_DECIMALS = 6;
-export const USDC_SCALE = 1_000_000n;
+export const USDC_SCALE = BigInt(1_000_000);
 
 function decimalText(value: unknown) {
   if (typeof value === "number") {
@@ -30,7 +30,7 @@ export function usdcToBaseUnits(value: unknown) {
   const whole = BigInt(match[1]);
   const fraction = BigInt((match[2] ?? "").padEnd(USDC_DECIMALS, "0"));
   const amount = whole * USDC_SCALE + fraction;
-  if (amount <= 0n) throw new ApiAuthError("The accepted amount must be greater than zero.", 409);
+  if (amount <= BigInt(0)) throw new ApiAuthError("The accepted amount must be greater than zero.", 409);
   return amount;
 }
 
@@ -46,9 +46,9 @@ export function paymentAmounts(amount: unknown) {
   const amountBaseUnits = usdcToBaseUnits(amount);
   const feeBps = configuredPlatformFeeBps();
   const platformFeeBaseUnits =
-    (amountBaseUnits * feeBps + 9_999n) / 10_000n;
+    (amountBaseUnits * feeBps + BigInt(9_999)) / BigInt(10_000);
   const studentAmountBaseUnits = amountBaseUnits - platformFeeBaseUnits;
-  if (studentAmountBaseUnits <= 0n) {
+  if (studentAmountBaseUnits <= BigInt(0)) {
     throw new ApiAuthError("The agreed amount is too small after the platform fee.", 409);
   }
   return {

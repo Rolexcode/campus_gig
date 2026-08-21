@@ -265,10 +265,13 @@ export async function POST(
       return responseForPayment(adminDb, id, decoded.uid, decoded.uid);
     }
 
-    let signedTransaction = reservation.signedTransaction;
-    let blockhash = reservation.blockhash;
-    let lastValidBlockHeight = reservation.lastValidBlockHeight;
-    let fundingSignature = reservation.fundingSignature;
+    let signedTransaction =
+      reservation.kind === "resume" ? reservation.signedTransaction : "";
+    let blockhash = reservation.kind === "resume" ? reservation.blockhash : "";
+    let lastValidBlockHeight =
+      reservation.kind === "resume" ? reservation.lastValidBlockHeight : 0;
+    let fundingSignature =
+      reservation.kind === "resume" ? reservation.fundingSignature : "";
 
     if (reservation.kind === "prepare") {
       try {
@@ -322,6 +325,9 @@ export async function POST(
       return responseForPayment(adminDb, id, decoded.uid, decoded.uid);
     }
 
+    if (!signedTransaction || !blockhash || !lastValidBlockHeight) {
+      throw new ApiAuthError("The signed funding transaction is incomplete.", 409);
+    }
     fundingSignature = await broadcastFundingTransaction(signedTransaction);
     await paymentReference.set(
       {

@@ -44,7 +44,7 @@ export async function getUsdcBalance(ownerAddress: string) {
     const account = await getAccount(connection, tokenAddress, "confirmed", TOKEN_PROGRAM_ID);
     return account.amount;
   } catch {
-    return 0n;
+    return BigInt(0);
   }
 }
 
