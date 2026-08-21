@@ -1,0 +1,12 @@
+CampusGig — Vercel Drop package
+
+1. Open https://vercel.com/drop
+2. Drag this entire campusgig-vercel folder onto the page.
+3. Choose your Vercel team and project name.
+4. Select Deploy.
+
+No GitHub repository is required. Vercel detects Next.js, installs the
+dependencies, builds the app, and returns a shareable URL.
+
+This folder intentionally excludes node_modules, build output, Git history,
+local caches, Cloudflare configuration, and environment files.
