@@ -18,12 +18,3 @@ Open `http://localhost:3000`.
 npm run build
 npm run start
 ```
-
-## Vercel Drop
-
-1. Open <https://vercel.com/drop>.
-2. Drag this complete `campusgig-vercel` folder onto the page.
-3. Keep the detected framework as Next.js.
-4. Deploy and share the generated URL.
-
-GitHub is not required for this drag-and-drop deployment.
