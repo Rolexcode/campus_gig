@@ -7,6 +7,10 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     await requireAdmin(request);
+    const requestedStatus = new URL(request.url).searchParams.get("status") ?? "pending";
+    if (!["pending", "all"].includes(requestedStatus)) {
+      return Response.json({ error: "Choose a valid verification filter." }, { status: 400 });
+    }
     const { adminAuth, adminDb } = getFirebaseAdminServices();
     const snapshot = await adminDb.collection("studentVerificationRequests").orderBy("submittedAt", "desc").limit(100).get();
     const identifiers = snapshot.docs.map((document) => ({ uid: document.id }));
@@ -15,7 +19,11 @@ export async function GET(request: Request) {
     const requests = snapshot.docs.flatMap((document) => {
       const data = document.data();
       const authUser = authByUid.get(document.id);
-      if (!authUser || isConfiguredAdminEmail(authUser.email ?? String(data.email ?? ""))) return [];
+      if (
+        !authUser ||
+        isConfiguredAdminEmail(authUser.email ?? String(data.email ?? "")) ||
+        (requestedStatus === "pending" && String(data.status ?? "pending") !== "pending")
+      ) return [];
       return [{
         uid: document.id,
         fullName: String(data.fullName ?? "CampusGig member"),
@@ -24,7 +32,10 @@ export async function GET(request: Request) {
         university: String(data.university ?? ""),
         status: String(data.status ?? "pending"),
         fileName: String(data.fileName ?? "Student ID"),
-        imageDataUrl: String(data.imageDataUrl ?? ""),
+        imageDataUrl:
+          String(data.status ?? "pending") === "pending"
+            ? String(data.imageDataUrl ?? "")
+            : "",
         submittedAt: data.submittedAt?.toDate?.().toISOString?.() ?? null,
       }];
     });
@@ -58,6 +69,8 @@ export async function PATCH(request: Request) {
     if (snapshot.exists) {
       batch.set(requestReference, {
         status: decision,
+        imageDataUrl: FieldValue.delete(),
+        sensitiveDocumentDeletedAt: FieldValue.serverTimestamp(),
         reviewedAt: FieldValue.serverTimestamp(),
         reviewedBy: admin.email ?? admin.uid,
         updatedAt: FieldValue.serverTimestamp(),

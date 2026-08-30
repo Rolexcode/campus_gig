@@ -10,8 +10,20 @@ export const GIG_CATEGORIES = [
 ] as const;
 
 export type GigCategory = (typeof GIG_CATEGORIES)[number];
-export type MarketplaceGigStatus =
-  "open" | "closed" | "awaiting_funding" | "in_progress" | "completed";
+export const MARKETPLACE_GIG_STATUSES = [
+  "draft",
+  "open",
+  "hired",
+  "terms_pending",
+  "awaiting_funding",
+  "in_progress",
+  "submitted",
+  "completed",
+  "disputed",
+  "cancelled",
+] as const;
+
+export type MarketplaceGigStatus = (typeof MARKETPLACE_GIG_STATUSES)[number];
 export type SettlementPreference = "local" | "usdc";
 export type MarketplaceApplicationStatus = "pending" | "accepted" | "rejected";
 export type MarketplaceAgreementStatus = "draft" | "proposed" | "accepted";
@@ -20,6 +32,7 @@ export type MarketplacePaymentStatus =
   | "funding_pending"
   | "funded"
   | "submitted"
+  | "disputed"
   | "approved"
   | "releasing"
   | "released"
@@ -40,6 +53,7 @@ export type MarketplaceGig = {
   budget: number;
   deadline: string;
   status: MarketplaceGigStatus;
+  version: number;
   applicantCount: number;
   posterName: string;
   posterUniversity: string;
@@ -93,6 +107,8 @@ export type MarketplacePayment = {
   studentAmountBaseUnits: string;
   escrowOwnerAddress: string;
   escrowAddress: string;
+  feePayerAddress: string;
+  feesSponsored: boolean;
   fundingSignature: string;
   releaseSignature: string;
   status: MarketplacePaymentStatus;
@@ -101,6 +117,25 @@ export type MarketplacePayment = {
   fundedAt: string;
   releasedAt: string;
   completedAt: string;
+  updatedAt: string;
+};
+
+export type MarketplaceWorkSubmissionStatus =
+  | "submitted"
+  | "changes_requested"
+  | "approved";
+
+export type MarketplaceWorkSubmission = {
+  gigId: string;
+  clientId: string;
+  studentId: string;
+  summary: string;
+  deliverableUrl: string;
+  status: MarketplaceWorkSubmissionStatus;
+  revisionNumber: number;
+  clientFeedback: string;
+  submittedAt: string;
+  reviewedAt: string;
   updatedAt: string;
 };
 
@@ -118,6 +153,10 @@ export type MarketplaceApplicantProfile = {
   availability: string;
   photoDataUrl: string;
   studentVerified: boolean;
+  completedGigCount: number;
+  ratingCount: number;
+  averageRating: number;
+  totalEarnedUsdcBaseUnits: string;
 };
 
 export type MarketplaceApplication = {

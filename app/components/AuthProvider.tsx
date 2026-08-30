@@ -58,6 +58,10 @@ export type UserProfile = {
   schoolEmail?: string;
   walletAddress?: string;
   walletNetwork?: "devnet";
+  completedGigCount?: number;
+  ratingCount?: number;
+  averageRating?: number;
+  totalEarnedUsdcBaseUnits?: string;
 };
 
 export type EditableProfile = Pick<
@@ -122,6 +126,10 @@ function profileFromData(data: Record<string, unknown>): UserProfile {
     schoolEmail: String(data.schoolEmail ?? ""),
     walletAddress: String(data.walletAddress ?? ""),
     walletNetwork: data.walletNetwork === "devnet" ? "devnet" : undefined,
+    completedGigCount: Number(data.completedGigCount ?? 0),
+    ratingCount: Number(data.ratingCount ?? 0),
+    averageRating: Number(data.averageRating ?? 0),
+    totalEarnedUsdcBaseUnits: String(data.totalEarnedUsdcBaseUnits ?? "0"),
   };
 }
 

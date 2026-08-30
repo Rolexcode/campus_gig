@@ -2,17 +2,17 @@ import { createHmac, randomInt } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { Resend } from "resend";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import {
+  isPersonalEmailDomain,
+  schoolEmailDomain,
+  verifiedInstitutionForEmail,
+} from "@/app/lib/school-email";
 import { apiErrorResponse, requireFirebaseUser } from "@/app/lib/server-auth";
 
 export const runtime = "nodejs";
 
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
-const PERSONAL_EMAIL_DOMAINS = new Set([
-  "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com",
-  "icloud.com", "proton.me", "protonmail.com", "aol.com",
-]);
-
 function codeHash(uid: string, email: string, code: string, secret: string) {
   return createHmac("sha256", secret).update(`campusgig-school-otp:${uid}:${email}:${code}`).digest("hex");
 }
@@ -37,6 +37,10 @@ export async function POST(request: Request) {
     if (!resendApiKey || resendApiKey.startsWith("replace_")) {
       throw new Error("Resend is not configured. Add RESEND_API_KEY to .env.local.");
     }
+    const hmacSecret = process.env.STUDENT_VERIFICATION_HMAC_SECRET?.trim();
+    if (!hmacSecret || hmacSecret.startsWith("replace_")) {
+      throw new Error("Student verification is not configured securely.");
+    }
 
     const decoded = await requireFirebaseUser(request);
     if (!decoded.email_verified) {
@@ -45,11 +49,11 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const schoolEmail = String(body.schoolEmail ?? "").trim().toLowerCase();
-    const emailMatch = schoolEmail.match(/^[^\s@]+@([^\s@]+)$/);
-    if (!emailMatch) {
+    const domain = schoolEmailDomain(schoolEmail);
+    if (!domain) {
       return Response.json({ error: "Enter a valid institution email address." }, { status: 400 });
     }
-    if (PERSONAL_EMAIL_DOMAINS.has(emailMatch[1])) {
+    if (isPersonalEmailDomain(domain)) {
       return Response.json({ error: "Use an email address issued by your school, or verify with a student ID instead." }, { status: 400 });
     }
 
@@ -59,6 +63,15 @@ export async function POST(request: Request) {
     const university = String(userSnapshot.data()?.university ?? "").trim();
     if (!university) {
       return Response.json({ error: "Add your university to your profile before starting verification." }, { status: 400 });
+    }
+    if (!verifiedInstitutionForEmail(schoolEmail, university)) {
+      return Response.json(
+        {
+          error:
+            "That email domain is not yet approved for your selected institution. Use student-ID review or contact CampusGig support.",
+        },
+        { status: 400 },
+      );
     }
     if (userSnapshot.data()?.studentVerified === true) return Response.json({ verified: true });
 
@@ -77,7 +90,7 @@ export async function POST(request: Request) {
     await codeReference.set({
       uid: decoded.uid,
       schoolEmail,
-      codeHash: codeHash(decoded.uid, schoolEmail, code, resendApiKey),
+      codeHash: codeHash(decoded.uid, schoolEmail, code, hmacSecret),
       attempts: 0,
       expiresAt: Timestamp.fromMillis(Date.now() + CODE_LIFETIME_MS),
       lastSentAt: FieldValue.serverTimestamp(),

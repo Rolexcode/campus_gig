@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Upload a JPG, PNG, or WebP image of your student ID." }, { status: 400 });
     }
     if (imageDataUrl.length > MAX_DATA_URL_LENGTH) {
-      return Response.json({ error: "That image is still too large. Choose a clearer image under 5 MB." }, { status: 413 });
+      return Response.json({ error: "That image is still too large. Choose a clearer image under 600 KB." }, { status: 413 });
     }
 
     const { adminDb } = getFirebaseAdminServices();

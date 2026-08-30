@@ -32,6 +32,18 @@ export async function POST(request: Request) {
     }
 
     if (!profile.fullName) return Response.json({ error: "Add your display name." }, { status: 400 });
+    for (const field of ["portfolio", "linkedIn", "gitHub"] as const) {
+      if (!profile[field]) continue;
+      try {
+        const url = new URL(profile[field]);
+        if (url.protocol !== "https:") throw new Error("Unsupported URL protocol");
+      } catch {
+        return Response.json(
+          { error: `${field} must be a complete https:// URL.` },
+          { status: 400 },
+        );
+      }
+    }
     const photoDataUrl = String(body.photoDataUrl ?? "");
     if (photoDataUrl && !/^data:image\/jpeg;base64,/.test(photoDataUrl)) {
       return Response.json({ error: "The profile photo format is not supported." }, { status: 400 });

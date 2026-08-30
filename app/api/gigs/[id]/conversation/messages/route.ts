@@ -5,6 +5,7 @@ import {
   requireConversationAccess,
 } from "@/app/lib/conversations";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import { writeUserNotification } from "@/app/lib/user-notifications";
 import {
   ApiAuthError,
   apiErrorResponse,
@@ -35,8 +36,11 @@ export async function POST(
     const access = await requireConversationAccess(adminDb, id, decoded.uid);
     const isOwner = decoded.uid === access.conversation.ownerId;
     const reference = access.conversationReference.collection("messages").doc();
-    await Promise.all([
-      reference.create({
+    const recipientId = isOwner
+      ? access.conversation.studentId
+      : access.conversation.ownerId;
+    await adminDb.runTransaction(async (transaction) => {
+      transaction.create(reference, {
         senderId: decoded.uid,
         senderName: isOwner
           ? access.conversation.ownerName
@@ -44,12 +48,23 @@ export async function POST(
         senderRole: isOwner ? "client" : "student",
         text,
         createdAt: FieldValue.serverTimestamp(),
-      }),
-      access.conversationReference.set(
+      });
+      transaction.set(
+        access.conversationReference,
         { updatedAt: FieldValue.serverTimestamp() },
         { merge: true },
-      ),
-    ]);
+      );
+      writeUserNotification(transaction, adminDb, {
+        userId: recipientId,
+        eventId: `message_${id}_${reference.id}`,
+        type: "system",
+        title: `New message from ${isOwner ? access.conversation.ownerName : access.conversation.studentName}`,
+        body: text.length > 160 ? `${text.slice(0, 157)}…` : text,
+        href: `/gigs/${id}/conversation`,
+        gigId: id,
+        actorId: decoded.uid,
+      });
+    });
     const created = await reference.get();
     return Response.json(
       { message: messageValue(created.id, created.data() ?? {}) },

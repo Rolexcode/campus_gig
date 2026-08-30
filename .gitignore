@@ -16,8 +16,10 @@
 
 # next.js
 /.next/
+/.next-build/
 /.vinext/
 /out/
+/.superstack/
 
 # misc
 .DS_Store

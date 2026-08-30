@@ -1,6 +1,8 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
 import type { MarketplaceApplication } from "@/app/lib/gigs";
+import { writeGigEvent } from "@/app/lib/gig-audit";
+import { writeUserNotification } from "@/app/lib/user-notifications";
 import { apiErrorResponse, ApiAuthError, requireMarketplaceUser } from "@/app/lib/server-auth";
 
 export const runtime = "nodejs";
@@ -49,6 +51,10 @@ function profileValue(data: Record<string, unknown>) {
     availability: String(data.availability ?? ""),
     photoDataUrl: String(data.photoDataUrl ?? ""),
     studentVerified: data.studentVerified === true,
+    completedGigCount: Number(data.completedGigCount ?? 0),
+    ratingCount: Number(data.ratingCount ?? 0),
+    averageRating: Number(data.averageRating ?? 0),
+    totalEarnedUsdcBaseUnits: String(data.totalEarnedUsdcBaseUnits ?? "0"),
   };
 }
 
@@ -117,7 +123,30 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
-      transaction.update(gigReference, { applicantCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(gigReference, {
+        applicantCount: FieldValue.increment(1),
+        version: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      writeGigEvent(transaction, gigReference, {
+        id: `application_${decoded.uid}`,
+        type: "application_submitted",
+        actorId: decoded.uid,
+        actorRole: "student",
+        fromStatus: "open",
+        toStatus: "open",
+        metadata: { applicationId: applicationReference.id },
+      });
+      writeUserNotification(transaction, adminDb, {
+        userId: String(gig.ownerId ?? ""),
+        eventId: `application_received_${id}_${decoded.uid}`,
+        type: "application",
+        title: "New gig application",
+        body: `${String(profile.fullName ?? "A verified student")} applied for “${String(gig.title ?? "your gig")}”.`,
+        href: `/my-gigs/${id}/applicants`,
+        gigId: id,
+        actorId: decoded.uid,
+      });
     });
 
     const created = await applicationReference.get();

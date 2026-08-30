@@ -2,6 +2,7 @@ import "server-only";
 
 import type { DecodedIdToken } from "firebase-admin/auth";
 import { getFirebaseAdminServices } from "./firebase-admin";
+import { InvalidGigTransitionError } from "./gig-contracts";
 
 export class ApiAuthError extends Error {
   constructor(message: string, public status: number) {
@@ -85,6 +86,10 @@ export async function requireMarketplaceUser(request: Request) {
 export function apiErrorResponse(error: unknown) {
   if (error instanceof ApiAuthError) {
     return Response.json({ error: error.message }, { status: error.status });
+  }
+
+  if (error instanceof InvalidGigTransitionError) {
+    return Response.json({ error: error.message }, { status: 409 });
   }
 
   const message = error instanceof Error ? error.message : "The request could not be completed.";

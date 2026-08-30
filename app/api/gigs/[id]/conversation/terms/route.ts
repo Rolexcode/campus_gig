@@ -5,6 +5,8 @@ import {
   requireConversationAccess,
 } from "@/app/lib/conversations";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
+import { writeGigEvent } from "@/app/lib/gig-audit";
 import {
   ApiAuthError,
   apiErrorResponse,
@@ -83,10 +85,15 @@ export async function POST(
 
     await adminDb.runTransaction(async (transaction) => {
       const paymentReference = adminDb.collection("gigPayments").doc(id);
-      const [conversationSnapshot, paymentSnapshot] = await Promise.all([
+      const [gigSnapshot, conversationSnapshot, paymentSnapshot] = await Promise.all([
+        transaction.get(access.gigReference),
         transaction.get(access.conversationReference),
         transaction.get(paymentReference),
       ]);
+      if (!gigSnapshot.exists)
+        throw new ApiAuthError("This gig could not be found.", 404);
+      const currentStatus = gigStatus(gigSnapshot.data()?.status ?? "hired");
+      assertGigTransition(currentStatus, "terms_pending");
       const paymentStatus = String(paymentSnapshot.data()?.status ?? "");
       if (
         paymentSnapshot.exists &&
@@ -117,8 +124,23 @@ export async function POST(
         updatedAt: FieldValue.serverTimestamp(),
       });
       transaction.update(access.gigReference, {
+        status: "terms_pending",
         agreementStatus: "proposed",
+        version: FieldValue.increment(1),
         updatedAt: FieldValue.serverTimestamp(),
+      });
+      writeGigEvent(transaction, access.gigReference, {
+        id: `terms_proposed_v${currentVersion + 1}`,
+        type: "terms_proposed",
+        actorId: decoded.uid,
+        actorRole: "client",
+        fromStatus: currentStatus,
+        toStatus: "terms_pending",
+        metadata: {
+          agreementVersion: currentVersion + 1,
+          currency,
+          amount,
+        },
       });
     });
 

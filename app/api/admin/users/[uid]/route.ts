@@ -1,5 +1,6 @@
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
 import { apiErrorResponse, isConfiguredAdminEmail, requireAdmin } from "@/app/lib/server-auth";
+import { FieldValue } from "firebase-admin/firestore";
 
 export const runtime = "nodejs";
 
@@ -58,11 +59,51 @@ export async function GET(request: Request, context: { params: Promise<{ uid: st
         verificationRequest: verification ? {
           status: String(verification.status ?? "pending"),
           fileName: String(verification.fileName ?? "Student ID"),
-          imageDataUrl: String(verification.imageDataUrl ?? ""),
+          imageDataUrl:
+            String(verification.status ?? "pending") === "pending"
+              ? String(verification.imageDataUrl ?? "")
+              : "",
           submittedAt: timestampValue(verification.submittedAt),
         } : null,
       },
     });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
+
+export async function PATCH(request: Request, context: { params: Promise<{ uid: string }> }) {
+  try {
+    const admin = await requireAdmin(request);
+    const { uid } = await context.params;
+    const body = await request.json().catch(() => ({}));
+    const action = String(body.action ?? "");
+    if (!['disable', 'enable'].includes(action)) {
+      return Response.json({ error: "Choose enable or disable." }, { status: 400 });
+    }
+    if (uid === admin.uid) {
+      return Response.json({ error: "You cannot change your own administrator account here." }, { status: 400 });
+    }
+
+    const { adminAuth, adminDb } = getFirebaseAdminServices();
+    const target = await adminAuth.getUser(uid);
+    if (isConfiguredAdminEmail(target.email)) {
+      return Response.json({ error: "Administrator identities cannot be managed as marketplace users." }, { status: 403 });
+    }
+
+    const disabled = action === "disable";
+    await adminAuth.updateUser(uid, { disabled });
+    if (disabled) await adminAuth.revokeRefreshTokens(uid);
+    await adminDb.collection("adminAuditEvents").add({
+      action: disabled ? "user_disabled" : "user_enabled",
+      actorUid: admin.uid,
+      actorEmail: admin.email ?? "",
+      targetUid: uid,
+      targetEmail: target.email ?? "",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return Response.json({ updated: true, disabled });
   } catch (error) {
     return apiErrorResponse(error);
   }

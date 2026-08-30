@@ -5,6 +5,9 @@ import {
   requireConversationAccess,
 } from "@/app/lib/conversations";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
+import { writeGigEvent } from "@/app/lib/gig-audit";
+import { writeUserNotification } from "@/app/lib/user-notifications";
 import { createEmbeddedWallet } from "@/app/lib/embedded-wallet";
 import { paymentAmounts } from "@/app/lib/payments";
 import {
@@ -36,12 +39,15 @@ export async function POST(
     const escrowCandidate = createEmbeddedWallet();
 
     await adminDb.runTransaction(async (transaction) => {
-      const [conversationSnapshot, paymentSnapshot, escrowKeySnapshot] =
+      const [gigSnapshot, conversationSnapshot, paymentSnapshot, escrowKeySnapshot] =
         await Promise.all([
+          transaction.get(access.gigReference),
           transaction.get(access.conversationReference),
           transaction.get(paymentReference),
           transaction.get(escrowKeyReference),
         ]);
+      if (!gigSnapshot.exists)
+        throw new ApiAuthError("This gig could not be found.", 404);
       const data = conversationSnapshot.data() ?? {};
       if (data.agreementStatus !== "proposed")
         throw new ApiAuthError(
@@ -49,6 +55,8 @@ export async function POST(
           409,
         );
       const version = Number(data.agreementVersion ?? 0);
+      const currentStatus = gigStatus(gigSnapshot.data()?.status ?? "terms_pending");
+      assertGigTransition(currentStatus, "awaiting_funding");
       const agreement = (data.agreement ?? {}) as Record<string, unknown>;
       const currency = String(agreement.currency ?? "");
       const settlementMethod =
@@ -78,7 +86,9 @@ export async function POST(
         updatedAt: FieldValue.serverTimestamp(),
       });
       transaction.update(access.gigReference, {
+        status: "awaiting_funding",
         agreementStatus: "accepted",
+        version: FieldValue.increment(1),
         termsAcceptedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -100,6 +110,8 @@ export async function POST(
                 )
               : "",
           escrowAddress: "",
+          feePayerAddress: "",
+          feesSponsored: false,
           fundingSignature: "",
           releaseSignature: "",
           status: "awaiting_funding",
@@ -117,6 +129,25 @@ export async function POST(
           createdAt: FieldValue.serverTimestamp(),
         });
       }
+      writeGigEvent(transaction, access.gigReference, {
+        id: `terms_accepted_v${version}`,
+        type: "terms_accepted",
+        actorId: decoded.uid,
+        actorRole: "student",
+        fromStatus: currentStatus,
+        toStatus: "awaiting_funding",
+        metadata: { agreementVersion: version, currency },
+      });
+      writeUserNotification(transaction, adminDb, {
+        userId: access.conversation.ownerId,
+        eventId: `terms_accepted_${id}_v${version}`,
+        type: "agreement",
+        title: "Final terms accepted",
+        body: `${access.conversation.studentName} accepted the contract terms. Funding is now the next step.`,
+        href: `/gigs/${id}/conversation`,
+        gigId: id,
+        actorId: decoded.uid,
+      });
     });
 
     const updated = await access.conversationReference.get();

@@ -6,6 +6,7 @@ import type {
   MarketplaceGig,
   SettlementPreference,
 } from "@/app/lib/gigs";
+import { gigStatus } from "@/app/lib/gig-contracts";
 import {
   apiErrorResponse,
   requireMarketplaceUser,
@@ -32,7 +33,8 @@ function gigValue(id: string, data: Record<string, unknown>): MarketplaceGig {
     ) as SettlementPreference,
     budget: Number(data.budget ?? 0),
     deadline: String(data.deadline ?? ""),
-    status: String(data.status ?? "open") as MarketplaceGig["status"],
+    status: gigStatus(data.status ?? "open"),
+    version: Number(data.version ?? 1),
     applicantCount: Number(data.applicantCount ?? 0),
     posterName: String(data.posterName ?? "CampusGig member"),
     posterUniversity: String(data.posterUniversity ?? "Institution not added"),

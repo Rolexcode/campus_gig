@@ -2,14 +2,20 @@ import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { createEmbeddedWallet, decryptEmbeddedWallet } from "@/app/lib/embedded-wallet";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
+import { writeGigEvent } from "@/app/lib/gig-audit";
+import { writeUserNotification } from "@/app/lib/user-notifications";
 import { cleanConversationId, requireConversationAccess } from "@/app/lib/conversations";
 import { paymentAmounts, paymentValue, usdcDisplayAmount } from "@/app/lib/payments";
+import { assertPaymentsActive } from "@/app/lib/payment-controls";
+import { enforceServerRateLimit } from "@/app/lib/server-rate-limit";
 import {
   broadcastFundingTransaction,
   buildSignedUsdcFundingTransaction,
   confirmFundingTransaction,
   fundingSignatureIsConfirmed,
   getUsdcBalance,
+  solanaFeeSponsorshipConfigured,
   solanaExplorerTransactionUrl,
 } from "@/app/lib/solana-payments";
 import {
@@ -47,23 +53,54 @@ async function markFunded(
       throw new ApiAuthError("The gig payment record could not be found.", 404);
     }
     const payment = paymentSnapshot.data() ?? {};
-    if (String(payment.status ?? "") === "funded") return;
     if (String(payment.fundingSignature ?? "") !== signature) {
       throw new ApiAuthError("The funding transaction does not match this gig.", 409);
     }
-    transaction.update(paymentReference, {
-      status: "funded",
-      failureReason: "",
-      fundedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    transaction.update(gigReference, {
-      status: "in_progress",
-      paymentStatus: "funded",
-      fundingSignature: signature,
-      fundedAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    const gig = gigSnapshot.data() ?? {};
+    const currentStatus = gigStatus(gig.status ?? "awaiting_funding");
+    const paymentAlreadyFunded = String(payment.status ?? "") === "funded";
+    const gigAlreadyStarted = currentStatus === "in_progress";
+    if (paymentAlreadyFunded && gigAlreadyStarted) return;
+    if (!gigAlreadyStarted) {
+      assertGigTransition(currentStatus, "in_progress");
+    }
+    if (!paymentAlreadyFunded) {
+      transaction.update(paymentReference, {
+        status: "funded",
+        failureReason: "",
+        fundedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    if (!gigAlreadyStarted) {
+      transaction.update(gigReference, {
+        status: "in_progress",
+        version: FieldValue.increment(1),
+        paymentStatus: "funded",
+        fundingSignature: signature,
+        fundedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      writeGigEvent(transaction, gigReference, {
+        id: `payment_secured_${signature}`,
+        type: "payment_secured",
+        actorId: String(payment.clientId ?? ""),
+        actorRole: "client",
+        fromStatus: currentStatus,
+        toStatus: "in_progress",
+        metadata: { signature, currency: "USDC" },
+      });
+      writeUserNotification(transaction, adminDb, {
+        userId: String(payment.studentId ?? ""),
+        eventId: `payment_secured_${gigId}_${signature}`,
+        type: "payment",
+        title: "Payment secured",
+        body: `The client funded “${String(gig.title ?? "your gig")}”. You can begin work now.`,
+        href: `/gigs/${gigId}/conversation`,
+        gigId,
+        actorId: String(payment.clientId ?? ""),
+      });
+    }
   });
 }
 
@@ -78,7 +115,10 @@ async function responseForPayment(
     adminDb.collection("walletKeys").doc(clientId).get(),
   ]);
   if (!paymentSnapshot.exists) {
-    return Response.json({ payment: null });
+    return Response.json({
+      payment: null,
+      feeSponsorshipAvailable: solanaFeeSponsorshipConfigured(),
+    });
   }
   const payload = publicPaymentPayload(paymentSnapshot.data() ?? {});
   let clientUsdcBalance = "";
@@ -99,6 +139,7 @@ async function responseForPayment(
     ...payload,
     clientWalletAddress,
     clientUsdcBalance,
+    feeSponsorshipAvailable: solanaFeeSponsorshipConfigured(),
   });
 }
 
@@ -139,10 +180,18 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertPaymentsActive();
     const decoded = await requireMarketplaceUser(request);
     const { id: rawId } = await context.params;
     const id = cleanConversationId(rawId);
     const { adminDb } = getFirebaseAdminServices();
+    await enforceServerRateLimit({
+      adminDb,
+      bucket: "fund-usdc",
+      key: decoded.uid,
+      limit: 10,
+      windowMs: 15 * 60 * 1000,
+    });
     const access = await requireConversationAccess(adminDb, id, decoded.uid);
     if (decoded.uid !== access.conversation.ownerId) {
       throw new ApiAuthError("Only the gig client can fund this payment.", 403);
@@ -215,6 +264,8 @@ export async function POST(
       if (existingStatus && !["awaiting_funding", "failed"].includes(existingStatus)) {
         throw new ApiAuthError(`This payment cannot be funded while it is ${existingStatus}.`, 409);
       }
+      const currentStatus = gigStatus(gig.status ?? "awaiting_funding");
+      assertGigTransition(currentStatus, "in_progress");
 
       const amounts = paymentAmounts(agreement.amount);
       const escrowOwnerAddress = String(
@@ -252,6 +303,20 @@ export async function POST(
           createdAt: FieldValue.serverTimestamp(),
         });
       }
+      transaction.update(access.gigReference, {
+        paymentStatus: "funding_pending",
+        version: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      writeGigEvent(transaction, access.gigReference, {
+        id: `funding_started_v${agreementVersion}`,
+        type: "funding_started",
+        actorId: decoded.uid,
+        actorRole: "client",
+        fromStatus: currentStatus,
+        toStatus: currentStatus,
+        metadata: { agreementVersion, operationId, currency: "USDC" },
+      });
       return {
         kind: "prepare" as const,
         operationId,
@@ -300,6 +365,8 @@ export async function POST(
             sourceAddress: signed.sourceAddress,
             escrowAddress: signed.escrowAddress,
             availableBeforeFundingBaseUnits: signed.availableBaseUnits,
+            feePayerAddress: signed.feePayerAddress,
+            feesSponsored: signed.feesSponsored,
             updatedAt: FieldValue.serverTimestamp(),
           });
         });

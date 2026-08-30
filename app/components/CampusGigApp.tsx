@@ -23,6 +23,7 @@ import {
   BadgeCheck,
   Banknote,
   BarChart3,
+  Bell,
   BriefcaseBusiness,
   Check,
   CheckCircle2,
@@ -56,15 +57,19 @@ import {
   type MarketplaceGig,
   type MarketplaceMessage,
   type MarketplacePayment,
+  type MarketplaceWorkSubmission,
   type SettlementPreference,
 } from "@/app/lib/gigs";
 
 type RouteProps = { route: string[] };
 type GigStatus =
+  | "draft"
   | "open"
   | "in progress"
   | "submitted"
   | "completed"
+  | "disputed"
+  | "cancelled"
   | "applied"
   | "accepted"
   | "rejected";
@@ -97,6 +102,10 @@ type AppState = {
   verificationStatus: VerificationStatus;
   verificationMethod: "school-email" | "student-id" | null;
   verificationActions: Record<number, "approved" | "rejected">;
+  completedGigCount: number;
+  ratingCount: number;
+  averageRating: number;
+  totalEarnedUsdcBaseUnits: string;
 };
 
 const initialState: AppState = {
@@ -123,6 +132,10 @@ const initialState: AppState = {
   verificationStatus: "unverified",
   verificationMethod: null,
   verificationActions: {},
+  completedGigCount: 0,
+  ratingCount: 0,
+  averageRating: 0,
+  totalEarnedUsdcBaseUnits: "0",
 };
 const institutionsByCountry: Record<string, string[]> = {
   Nigeria: [
@@ -466,6 +479,10 @@ function AppStateProvider({ children }: { children: ReactNode }) {
             ? "pending"
             : "unverified",
       verificationMethod: profile.verificationMethod || null,
+      completedGigCount: profile.completedGigCount || 0,
+      ratingCount: profile.ratingCount || 0,
+      averageRating: profile.averageRating || 0,
+      totalEarnedUsdcBaseUnits: profile.totalEarnedUsdcBaseUnits || "0",
     };
   }, [profile, user]);
 
@@ -508,11 +525,44 @@ function formatAmount(amount: number, currency?: string) {
   }).format(amount);
 }
 
+function formatUsdcBaseUnits(value: string) {
+  const amount = BigInt(value || "0");
+  const scale = BigInt(1_000_000);
+  const whole = amount / scale;
+  const fraction = (amount % scale)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return `${fraction ? `${whole}.${fraction}` : whole.toString()} USDC`;
+}
+
 function gigStatusForDisplay(status: MarketplaceGig["status"]): GigStatus {
-  if (status === "in_progress") return "in progress";
-  if (status === "awaiting_funding") return "accepted";
-  if (status === "closed") return "completed";
-  return status;
+  switch (status) {
+    case "in_progress":
+      return "in progress";
+    case "hired":
+    case "terms_pending":
+    case "awaiting_funding":
+      return "accepted";
+    default:
+      return status;
+  }
+}
+
+function gigHasSelectedStudent(gig: MarketplaceGig) {
+  return Boolean(gig.selectedApplicantId) && gig.status !== "open";
+}
+
+function gigHasPrivateWorkspace(gig: MarketplaceGig) {
+  return [
+    "hired",
+    "terms_pending",
+    "awaiting_funding",
+    "in_progress",
+    "submitted",
+    "completed",
+    "disputed",
+  ].includes(gig.status);
 }
 
 function formatGigDate(value: string) {
@@ -604,6 +654,7 @@ function StatusBadge({ status }: { status: GigStatus }) {
     GigStatus,
     { className: string; icon: typeof CheckCircle2; label: string }
   > = {
+    draft: { className: "status-applied", icon: FileText, label: "Draft" },
     open: { className: "status-open", icon: Sparkles, label: "Open" },
     "in progress": {
       className: "status-progress",
@@ -619,6 +670,16 @@ function StatusBadge({ status }: { status: GigStatus }) {
       className: "status-completed",
       icon: CheckCircle2,
       label: "Completed",
+    },
+    disputed: {
+      className: "status-rejected",
+      icon: AlertCircle,
+      label: "Disputed",
+    },
+    cancelled: {
+      className: "status-rejected",
+      icon: XCircle,
+      label: "Cancelled",
     },
     applied: { className: "status-applied", icon: FileText, label: "Applied" },
     accepted: {
@@ -865,6 +926,7 @@ function AppHeader() {
     ["/applications", "My applications"],
     ["/post", "Post a gig"],
     ["/my-gigs", "My posted gigs"],
+    ["/notifications", "Notifications"],
   ];
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
@@ -1039,6 +1101,193 @@ function PageHeader({
       </div>
       {action}
     </div>
+  );
+}
+
+type UserNotification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  href: string;
+  read: boolean;
+  createdAt: string | null;
+};
+
+function NotificationsPage() {
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadNotifications = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/notifications", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Notifications could not be loaded."));
+      }
+      setNotifications(
+        Array.isArray(payload.notifications) ? payload.notifications : [],
+      );
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Notifications could not be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadNotifications(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadNotifications]);
+
+  const markRead = async (notificationId: string) => {
+    if (!user) return;
+    setNotifications((current) =>
+      current.map((item) =>
+        item.id === notificationId ? { ...item, read: true } : item,
+      ),
+    );
+    const token = await user.getIdToken();
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ notificationId }),
+    }).catch(() => undefined);
+  };
+
+  const markAllRead = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ all: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Notifications could not be updated."));
+      }
+      setNotifications((current) =>
+        current.map((item) => ({ ...item, read: true })),
+      );
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Notifications could not be updated.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unreadCount = notifications.filter((item) => !item.read).length;
+
+  return (
+    <AppLayout>
+      <section className="page-shell py-8 sm:py-12">
+        <PageHeader
+          eyebrow="Activity"
+          title="Notifications"
+          description="Contract messages, applications, funding, work reviews, and payout updates in one place."
+          action={
+            unreadCount > 0 ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => void markAllRead()}
+                disabled={busy}
+              >
+                <CheckCircle2 className="size-4" />
+                {busy ? "Updating…" : "Mark all as read"}
+              </button>
+            ) : undefined
+          }
+        />
+        {error && (
+          <div className="mt-7 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800" role="alert">
+            <AlertCircle className="mr-2 inline size-4" />
+            {error}
+          </div>
+        )}
+        {loading ? (
+          <div className="card mt-7 p-10 text-center" role="status">
+            <Clock3 className="mx-auto size-7 animate-spin text-primary" />
+            <p className="mt-4 font-semibold">Loading your activity…</p>
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="card mt-7 p-10 text-center">
+            <Bell className="mx-auto size-9 text-muted" />
+            <h2 className="mt-4 text-lg font-bold">No notifications yet</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
+              New applications, messages, contract decisions, and payment updates will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-7 space-y-3">
+            {notifications.map((item) => (
+              <article
+                key={item.id}
+                className={`rounded-xl border p-5 ${item.read ? "border-border bg-surface" : "border-primary/25 bg-primary-soft/50"}`}
+              >
+                <div className="flex items-start gap-4">
+                  <span className={`mt-0.5 grid size-10 shrink-0 place-items-center rounded-lg ${item.read ? "bg-muted-surface text-muted" : "bg-primary text-white"}`}>
+                    <Bell className="size-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h2 className="font-bold">{item.title}</h2>
+                        <p className="mt-1 text-sm leading-6 text-muted">{item.body}</p>
+                      </div>
+                      {!item.read && (
+                        <span className="rounded-full bg-primary px-2.5 py-1 text-xs font-bold text-white">
+                          New
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-muted">{adminDate(item.createdAt)}</p>
+                      <Link
+                        href={item.href || "/gigs"}
+                        className="btn btn-secondary"
+                        onClick={() => void markRead(item.id)}
+                      >
+                        Open update
+                        <ArrowRight className="size-4" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </AppLayout>
   );
 }
 
@@ -3110,7 +3359,17 @@ function ApplicationsPage() {
 
 function ProfileWorkspacePage() {
   const [state] = useAppState();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
+  const [reviews, setReviews] = useState<
+    Array<{
+      id: string;
+      clientName: string;
+      rating: number;
+      review: string;
+      createdAt: string | null;
+    }>
+  >([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
   const [walletCopyStatus, setWalletCopyStatus] = useState<
     "idle" | "copied" | "error"
   >("idle");
@@ -3129,6 +3388,30 @@ function ProfileWorkspacePage() {
   const visibleWalletAddress = walletAddress
     ? `${walletAddress.slice(0, 7)}...${walletAddress.slice(-7)}`
     : "Preparing wallet…";
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const loadReviews = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch("/api/profile/reviews", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (active && response.ok) {
+          setReviews(Array.isArray(payload.reviews) ? payload.reviews : []);
+        }
+      } finally {
+        if (active) setReviewsLoading(false);
+      }
+    };
+    void loadReviews();
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const copyWalletAddress = async () => {
     if (!walletAddress) return;
@@ -3230,9 +3513,17 @@ function ProfileWorkspacePage() {
 
               <div className="mt-8 grid gap-4 border-t border-border pt-7 sm:grid-cols-3">
                 {[
-                  ["Completed gigs", verified ? "9" : "0"],
-                  ["Client rating", verified ? "4.9 / 5" : "—"],
-                  ["On-time delivery", verified ? "100%" : "—"],
+                  ["Completed gigs", String(state.completedGigCount)],
+                  [
+                    "Client rating",
+                    state.ratingCount > 0
+                      ? `${state.averageRating.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} / 5`
+                      : "—",
+                  ],
+                  [
+                    "USDC earned",
+                    formatUsdcBaseUnits(state.totalEarnedUsdcBaseUnits),
+                  ],
                 ].map(([label, value]) => (
                   <div className="rounded-lg bg-muted-surface p-4" key={label}>
                     <p className="text-xs font-bold uppercase tracking-wide text-muted">
@@ -3279,6 +3570,53 @@ function ProfileWorkspacePage() {
                       {label}
                       <ArrowRight className="size-4" />
                     </a>
+                  ))}
+                </div>
+              )}
+            </article>
+            <article className="card p-5 sm:p-8">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold">Client reviews</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Ratings are created only after approved, paid work.
+                  </p>
+                </div>
+                {state.ratingCount > 0 && (
+                  <p className="font-mono text-sm font-bold text-primary">
+                    {state.averageRating.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} / 5
+                  </p>
+                )}
+              </div>
+              {reviewsLoading ? (
+                <div className="mt-5 flex min-h-24 items-center justify-center" role="status">
+                  <Clock3 className="size-5 animate-spin text-primary" />
+                  <span className="ml-2 text-sm font-semibold">Loading reviews…</span>
+                </div>
+              ) : reviews.length === 0 ? (
+                <div className="mt-5 rounded-lg bg-muted-surface p-5 text-sm leading-6 text-muted">
+                  Completed-job reviews will appear here after a client approves and releases payment.
+                </div>
+              ) : (
+                <div className="mt-5 divide-y divide-border">
+                  {reviews.map((item) => (
+                    <section className="py-5 first:pt-0 last:pb-0" key={item.id}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{item.clientName}</p>
+                          <p className="mt-1 text-xs text-muted">{adminDate(item.createdAt)}</p>
+                        </div>
+                        <p
+                          className="font-mono text-sm font-bold text-amber-700"
+                          aria-label={`${item.rating} out of 5 stars`}
+                        >
+                          {"★".repeat(item.rating)}{"☆".repeat(5 - item.rating)}
+                        </p>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-secondary">
+                        {item.review || "The client left a rating without a written review."}
+                      </p>
+                    </section>
                   ))}
                 </div>
               )}
@@ -3339,10 +3677,12 @@ function ProfileWorkspacePage() {
               <dl className="mt-5 space-y-4">
                 <div>
                   <dt className="text-xs font-bold uppercase tracking-wide text-muted">
-                    Available balance
+                    Total released earnings
                   </dt>
                   <dd className="mt-1 font-mono text-lg font-bold">
-                    {verified ? "540 USDC" : "—"}
+                    {verified
+                      ? formatUsdcBaseUnits(state.totalEarnedUsdcBaseUnits)
+                      : "—"}
                   </dd>
                 </div>
                 <div>
@@ -3350,7 +3690,7 @@ function ProfileWorkspacePage() {
                     Payout preference
                   </dt>
                   <dd className="mt-1 text-sm font-semibold">
-                    Local payout or USDC
+                    Selected separately for each gig
                   </dd>
                 </div>
               </dl>
@@ -6402,7 +6742,8 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
         current
           ? {
               ...current,
-              status: "awaiting_funding",
+              status:
+                payload.status === "hired" ? payload.status : "hired",
               selectedApplicantId: application.applicantId,
               selectedApplicantName: application.applicantName,
             }
@@ -6445,7 +6786,7 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
       </AppLayout>
     );
   if (!gig) return null;
-  const selected = gig.status === "awaiting_funding";
+  const selected = gigHasSelectedStudent(gig);
   return (
     <AppLayout>
       <section className="page-shell py-8 sm:py-12">
@@ -6587,6 +6928,28 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
                         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
                           {profile.bio || "No bio added yet."}
                         </p>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          {[
+                            ["Completed gigs", String(profile.completedGigCount)],
+                            [
+                              "Client rating",
+                              profile.ratingCount > 0
+                                ? `${profile.averageRating.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} / 5`
+                                : "—",
+                            ],
+                            [
+                              "USDC earned",
+                              formatUsdcBaseUnits(profile.totalEarnedUsdcBaseUnits),
+                            ],
+                          ].map(([label, value]) => (
+                            <div className="rounded-lg bg-muted-surface p-4" key={label}>
+                              <p className="text-xs font-bold uppercase tracking-wide text-muted">
+                                {label}
+                              </p>
+                              <p className="mt-2 font-bold">{value}</p>
+                            </div>
+                          ))}
+                        </div>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
                           <div className="rounded-lg bg-muted-surface p-4">
                             <p className="text-xs font-bold uppercase tracking-wide text-muted">
@@ -6667,6 +7030,21 @@ function MarketplaceConversationPage({ id }: { id: string }) {
   const [paymentError, setPaymentError] = useState("");
   const [clientWalletAddress, setClientWalletAddress] = useState("");
   const [clientUsdcBalance, setClientUsdcBalance] = useState("");
+  const [feeSponsorshipAvailable, setFeeSponsorshipAvailable] = useState(false);
+  const [submission, setSubmission] =
+    useState<MarketplaceWorkSubmission | null>(null);
+  const [workLoading, setWorkLoading] = useState(true);
+  const [workBusy, setWorkBusy] = useState(false);
+  const [workError, setWorkError] = useState("");
+  const [workSummary, setWorkSummary] = useState("");
+  const [deliverableUrl, setDeliverableUrl] = useState("");
+  const [clientFeedback, setClientFeedback] = useState("");
+  const [completionRating, setCompletionRating] = useState("5");
+  const [completionReview, setCompletionReview] = useState("");
+  const [disputeCategory, setDisputeCategory] = useState("scope");
+  const [disputeDescription, setDisputeDescription] = useState("");
+  const [disputeBusy, setDisputeBusy] = useState(false);
+  const [disputeError, setDisputeError] = useState("");
   const [scope, setScope] = useState("");
   const [deliverables, setDeliverables] = useState("");
   const [deadline, setDeadline] = useState("");
@@ -6675,6 +7053,7 @@ function MarketplaceConversationPage({ id }: { id: string }) {
   const hydratedVersion = useRef(-1);
   const requestActive = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const hydratedSubmissionRevision = useRef(0);
 
   const loadConversation = useCallback(
     async (quiet = false) => {
@@ -6746,6 +7125,7 @@ function MarketplaceConversationPage({ id }: { id: string }) {
         setPayment((payload.payment as MarketplacePayment | null) ?? null);
         setClientWalletAddress(String(payload.clientWalletAddress ?? ""));
         setClientUsdcBalance(String(payload.clientUsdcBalance ?? ""));
+        setFeeSponsorshipAvailable(payload.feeSponsorshipAvailable === true);
         setPaymentError("");
       } catch (loadError) {
         if (!quiet) {
@@ -6757,6 +7137,52 @@ function MarketplaceConversationPage({ id }: { id: string }) {
         }
       } finally {
         if (!quiet) setPaymentLoading(false);
+      }
+    },
+    [id, user],
+  );
+
+  const loadWork = useCallback(
+    async (quiet = false) => {
+      if (!user) return;
+      if (!quiet) setWorkLoading(true);
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch(
+          `/api/gigs/${encodeURIComponent(id)}/work`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            String(payload.error ?? "The work submission could not be loaded."),
+          );
+        }
+        const nextSubmission =
+          (payload.submission as MarketplaceWorkSubmission | null) ?? null;
+        setSubmission(nextSubmission);
+        if (
+          nextSubmission &&
+          hydratedSubmissionRevision.current !== nextSubmission.revisionNumber
+        ) {
+          setWorkSummary(nextSubmission.summary);
+          setDeliverableUrl(nextSubmission.deliverableUrl);
+          hydratedSubmissionRevision.current = nextSubmission.revisionNumber;
+        }
+        setWorkError("");
+      } catch (loadError) {
+        if (!quiet) {
+          setWorkError(
+            loadError instanceof Error
+              ? loadError.message
+              : "The work submission could not be loaded.",
+          );
+        }
+      } finally {
+        if (!quiet) setWorkLoading(false);
       }
     },
     [id, user],
@@ -6787,6 +7213,19 @@ function MarketplaceConversationPage({ id }: { id: string }) {
       window.clearInterval(polling);
     };
   }, [loadPayment]);
+
+  useEffect(() => {
+    const firstLoad = window.setTimeout(() => {
+      void loadWork(false);
+    }, 0);
+    const polling = window.setInterval(() => {
+      void loadWork(true);
+    }, 5_000);
+    return () => {
+      window.clearTimeout(firstLoad);
+      window.clearInterval(polling);
+    };
+  }, [loadWork]);
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({
@@ -6926,6 +7365,7 @@ function MarketplaceConversationPage({ id }: { id: string }) {
       setPayment((payload.payment as MarketplacePayment | null) ?? null);
       setClientWalletAddress(String(payload.clientWalletAddress ?? ""));
       setClientUsdcBalance(String(payload.clientUsdcBalance ?? ""));
+      setFeeSponsorshipAvailable(payload.feeSponsorshipAvailable === true);
       await Promise.all([loadConversation(true), loadPayment(true)]);
     } catch (fundError) {
       setPaymentError(
@@ -6936,6 +7376,157 @@ function MarketplaceConversationPage({ id }: { id: string }) {
       await loadPayment(true);
     } finally {
       setFunding(false);
+    }
+  };
+
+  const submitWork = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user || workBusy) return;
+    setWorkBusy(true);
+    setWorkError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/work`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            summary: workSummary,
+            deliverableUrl,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "The work could not be submitted."));
+      }
+      setSubmission(payload.submission as MarketplaceWorkSubmission);
+      await Promise.all([loadWork(true), loadPayment(true)]);
+    } catch (submitError) {
+      setWorkError(
+        submitError instanceof Error
+          ? submitError.message
+          : "The work could not be submitted.",
+      );
+    } finally {
+      setWorkBusy(false);
+    }
+  };
+
+  const requestWorkChanges = async () => {
+    if (!user || workBusy) return;
+    setWorkBusy(true);
+    setWorkError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/work`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ feedback: clientFeedback }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Changes could not be requested."));
+      }
+      setSubmission(payload.submission as MarketplaceWorkSubmission);
+      setClientFeedback("");
+      await Promise.all([loadWork(true), loadPayment(true)]);
+    } catch (reviewError) {
+      setWorkError(
+        reviewError instanceof Error
+          ? reviewError.message
+          : "Changes could not be requested.",
+      );
+    } finally {
+      setWorkBusy(false);
+    }
+  };
+
+  const approveWork = async () => {
+    if (!user || workBusy) return;
+    setWorkBusy(true);
+    setWorkError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/work/approve`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            rating: Number(completionRating),
+            review: completionReview,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "Payment could not be released."),
+        );
+      }
+      setPayment((payload.payment as MarketplacePayment | null) ?? null);
+      await Promise.all([loadWork(true), loadPayment(true), loadConversation(true)]);
+    } catch (approvalError) {
+      setWorkError(
+        approvalError instanceof Error
+          ? approvalError.message
+          : "Payment could not be released.",
+      );
+      await Promise.all([loadWork(true), loadPayment(true)]);
+    } finally {
+      setWorkBusy(false);
+    }
+  };
+
+  const openDispute = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user || disputeBusy) return;
+    setDisputeBusy(true);
+    setDisputeError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/dispute`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            category: disputeCategory,
+            description: disputeDescription,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "The dispute could not be opened."));
+      }
+      setDisputeDescription("");
+      await Promise.all([loadPayment(true), loadConversation(true)]);
+    } catch (openError) {
+      setDisputeError(
+        openError instanceof Error
+          ? openError.message
+          : "The dispute could not be opened.",
+      );
+    } finally {
+      setDisputeBusy(false);
     }
   };
 
@@ -7312,6 +7903,16 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                   </a>
                 )}
               </div>
+            ) : payment?.status === "disputed" ? (
+              <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" role="alert">
+                <p className="font-bold">
+                  <AlertCircle className="mr-2 inline size-5 text-red-700" />
+                  Contract under dispute
+                </p>
+                <p className="mt-2 text-sm leading-6">
+                  Work approval and payment release are frozen. Continue using the contract chat to preserve a written record while CampusGig reviews the case.
+                </p>
+              </div>
             ) : payment?.status === "funding_pending" ? (
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950" role="status">
                 <p className="font-bold">
@@ -7327,6 +7928,19 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 <p className="font-bold">Fund with Devnet USDC</p>
                 <p className="mt-2 text-sm leading-6 text-muted">
                   The accepted amount moves from your embedded wallet into this gig’s custodial escrow wallet.
+                </p>
+                <p className="mt-3 rounded-lg bg-primary-soft p-3 text-sm leading-6 text-secondary">
+                  {feeSponsorshipAvailable ? (
+                    <>
+                      <ShieldCheck className="mr-2 inline size-4 text-primary" />
+                      CampusGig pays the Solana network fee. You only need the agreed USDC amount.
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="mr-2 inline size-4" />
+                      Fee sponsorship is not configured in this environment, so this development wallet also needs Devnet SOL.
+                    </>
+                  )}
                 </p>
                 <dl className="mt-4 space-y-2 text-sm">
                   <div className="flex justify-between gap-4">
@@ -7366,6 +7980,290 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 Terms accepted. Waiting for the client to secure payment.
                 {paymentError && <p className="mt-2 text-red-700">{paymentError}</p>}
               </div>
+            )}
+            {payment &&
+              [
+                "funded",
+                "submitted",
+                "approved",
+                "releasing",
+                "released",
+                "completed",
+              ].includes(payment.status) && (
+                <div className="mt-6 border-t border-border pt-6">
+                  <p className="text-xs font-bold uppercase tracking-[.12em] text-primary">
+                    Work and release
+                  </p>
+                  {workLoading ? (
+                    <div className="mt-4 rounded-lg bg-muted-surface p-4 text-sm text-muted">
+                      <Clock3 className="mr-2 inline size-4 animate-spin" />
+                      Loading work status…
+                    </div>
+                  ) : payment.status === "completed" ? (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+                      <p className="flex items-center gap-2 font-bold">
+                        <CheckCircle2 className="size-5" />
+                        Work approved and paid
+                      </p>
+                      <dl className="mt-4 space-y-2 text-sm">
+                        <div className="flex justify-between gap-4">
+                          <dt>Student received</dt>
+                          <dd className="font-mono font-bold">
+                            {formatUsdcBaseUnits(payment.studentAmountBaseUnits)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt>CampusGig fee</dt>
+                          <dd className="font-mono font-bold">
+                            {formatUsdcBaseUnits(payment.platformFeeBaseUnits)}
+                          </dd>
+                        </div>
+                      </dl>
+                      {payment.releaseSignature && (
+                        <a
+                          className="text-link mt-3 inline-flex min-h-11 items-center gap-2"
+                          href={`https://explorer.solana.com/tx/${encodeURIComponent(payment.releaseSignature)}?cluster=devnet`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View release on Explorer <ArrowRight className="size-4" />
+                        </a>
+                      )}
+                    </div>
+                  ) : role === "student" ? (
+                    submission?.status === "submitted" ? (
+                      <div className="mt-4 rounded-lg bg-primary-soft p-4 text-sm leading-6 text-secondary">
+                        <FileCheck2 className="mr-2 inline size-4 text-primary" />
+                        Revision {submission.revisionNumber} is waiting for client review.
+                        {submission.deliverableUrl && (
+                          <a
+                            className="text-link mt-2 flex min-h-11 items-center gap-2"
+                            href={submission.deliverableUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open submitted deliverable <ArrowRight className="size-4" />
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <form className="mt-4 space-y-4" onSubmit={submitWork}>
+                        {submission?.status === "changes_requested" && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+                            <AlertCircle className="mr-2 inline size-4" />
+                            <strong>Changes requested:</strong>{" "}
+                            {submission.clientFeedback}
+                          </div>
+                        )}
+                        <div className="field">
+                          <label htmlFor="work-summary">Completion note</label>
+                          <textarea
+                            className="input min-h-32"
+                            id="work-summary"
+                            value={workSummary}
+                            onChange={(event) =>
+                              setWorkSummary(event.target.value.slice(0, 2_000))
+                            }
+                            placeholder="Summarize what you completed and how it matches the agreed deliverables."
+                            minLength={20}
+                            maxLength={2_000}
+                            required
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="deliverable-url">
+                            Secure deliverable link <span className="text-muted">(optional)</span>
+                          </label>
+                          <input
+                            className="input"
+                            id="deliverable-url"
+                            type="url"
+                            inputMode="url"
+                            value={deliverableUrl}
+                            onChange={(event) =>
+                              setDeliverableUrl(event.target.value.slice(0, 1_000))
+                            }
+                            placeholder="https://…"
+                            maxLength={1_000}
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="btn btn-primary w-full"
+                          disabled={workBusy}
+                        >
+                          {workBusy
+                            ? "Submitting…"
+                            : submission?.status === "changes_requested"
+                              ? "Submit revised work"
+                              : "Submit work for review"}
+                        </button>
+                      </form>
+                    )
+                  ) : submission?.status === "submitted" ? (
+                    <div className="mt-4 space-y-5">
+                      <div className="rounded-xl border border-border p-4">
+                        <p className="font-bold">
+                          Revision {submission.revisionNumber} submitted
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">
+                          {submission.summary}
+                        </p>
+                        {submission.deliverableUrl && (
+                          <a
+                            className="text-link mt-3 inline-flex min-h-11 items-center gap-2"
+                            href={submission.deliverableUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Review deliverable <ArrowRight className="size-4" />
+                          </a>
+                        )}
+                      </div>
+                      <div className="field">
+                        <label htmlFor="client-feedback">Request changes</label>
+                        <textarea
+                          className="input min-h-24"
+                          id="client-feedback"
+                          value={clientFeedback}
+                          onChange={(event) =>
+                            setClientFeedback(event.target.value.slice(0, 1_500))
+                          }
+                          placeholder="Explain the specific changes needed."
+                          maxLength={1_500}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary mt-3 w-full"
+                          onClick={() => void requestWorkChanges()}
+                          disabled={workBusy || clientFeedback.trim().length < 10}
+                        >
+                          Request changes
+                        </button>
+                      </div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="font-bold text-emerald-950">
+                          Approve and release payment
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-emerald-900">
+                          This sends {formatUsdcBaseUnits(payment.studentAmountBaseUnits)} to the student and {formatUsdcBaseUnits(payment.platformFeeBaseUnits)} to CampusGig in one transaction.
+                        </p>
+                        <div className="field mt-4">
+                          <label htmlFor="completion-rating">Student rating</label>
+                          <select
+                            className="input"
+                            id="completion-rating"
+                            value={completionRating}
+                            onChange={(event) => setCompletionRating(event.target.value)}
+                          >
+                            <option value="5">5 — Excellent</option>
+                            <option value="4">4 — Very good</option>
+                            <option value="3">3 — Good</option>
+                            <option value="2">2 — Needs improvement</option>
+                            <option value="1">1 — Poor</option>
+                          </select>
+                        </div>
+                        <div className="field mt-4">
+                          <label htmlFor="completion-review">
+                            Public review <span className="text-muted">(optional)</span>
+                          </label>
+                          <textarea
+                            className="input min-h-24"
+                            id="completion-review"
+                            value={completionReview}
+                            onChange={(event) =>
+                              setCompletionReview(event.target.value.slice(0, 1_000))
+                            }
+                            maxLength={1_000}
+                            placeholder="Share concise feedback about the work."
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary mt-4 w-full"
+                          onClick={() => void approveWork()}
+                          disabled={workBusy}
+                        >
+                          {workBusy ? "Releasing USDC…" : "Approve work and release USDC"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : payment.status === "releasing" ? (
+                    <div className="mt-4 rounded-lg bg-primary-soft p-4 text-sm leading-6 text-secondary">
+                      <Clock3 className="mr-2 inline size-4 animate-spin text-primary" />
+                      The USDC release is being confirmed. Retrying reuses the same signed transaction.
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-lg bg-muted-surface p-4 text-sm leading-6 text-muted">
+                      <Clock3 className="mr-2 inline size-4" />
+                      Waiting for the student to submit completed work.
+                    </div>
+                  )}
+                  {workError && (
+                    <p className="mt-4 text-sm leading-6 text-red-700" role="alert">
+                      <AlertCircle className="mr-2 inline size-4" />
+                      {workError}
+                    </p>
+                  )}
+                </div>
+              )}
+            {payment && ["funded", "submitted"].includes(payment.status) && (
+              <details className="mt-6 border-t border-border pt-6">
+                <summary className="focus-ring min-h-11 cursor-pointer rounded-lg py-2 text-sm font-semibold text-red-700">
+                  Report a contract problem
+                </summary>
+                <form className="mt-3 space-y-4 rounded-xl border border-red-200 bg-red-50 p-4" onSubmit={openDispute}>
+                  <div>
+                    <h3 className="font-bold text-red-950">Open a formal dispute</h3>
+                    <p className="mt-1 text-sm leading-6 text-red-900">
+                      This immediately freezes work approval and payment release. Use it only for a material contract problem.
+                    </p>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="dispute-category">Issue category</label>
+                    <select
+                      id="dispute-category"
+                      className="input bg-white"
+                      value={disputeCategory}
+                      onChange={(event) => setDisputeCategory(event.target.value)}
+                    >
+                      <option value="scope">Scope disagreement</option>
+                      <option value="quality">Quality concern</option>
+                      <option value="non_delivery">Non-delivery</option>
+                      <option value="conduct">Conduct or communication</option>
+                      <option value="payment">Payment concern</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="dispute-description">What happened?</label>
+                    <textarea
+                      id="dispute-description"
+                      className="input min-h-32 bg-white"
+                      value={disputeDescription}
+                      onChange={(event) => setDisputeDescription(event.target.value.slice(0, 2_000))}
+                      minLength={50}
+                      maxLength={2_000}
+                      required
+                      placeholder="Describe the issue, the agreed term involved, and the outcome you are requesting."
+                    />
+                    <p className="text-xs text-red-800">50–2,000 characters. Do not include passwords or private keys.</p>
+                  </div>
+                  {disputeError && (
+                    <p className="text-sm leading-6 text-red-800" role="alert">
+                      <AlertCircle className="mr-2 inline size-4" />
+                      {disputeError}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    className="btn btn-danger w-full"
+                    disabled={disputeBusy || disputeDescription.trim().length < 50}
+                  >
+                    {disputeBusy ? "Freezing contract…" : "Open dispute and freeze release"}
+                  </button>
+                </form>
+              </details>
             )}
           </aside>
         </div>
@@ -7440,7 +8338,7 @@ function MyGigsLivePage() {
                       {formatAmount(gig.budget, gig.currency)} · Due{" "}
                       {formatDeadline(gig.deadline)}
                     </p>
-                    {(gig.status === "awaiting_funding" || gig.status === "in_progress") && (
+                    {gigHasSelectedStudent(gig) && (
                       <p className="mt-2 text-sm font-semibold text-primary">
                         {gig.selectedApplicantName} selected ·{" "}
                         {gig.status === "in_progress"
@@ -7453,13 +8351,13 @@ function MyGigsLivePage() {
                   </div>
                   <Link
                     href={
-                      gig.status === "awaiting_funding" || gig.status === "in_progress"
+                      gigHasPrivateWorkspace(gig)
                         ? `/gigs/${gig.id}/conversation`
                         : `/my-gigs/${gig.id}/applicants`
                     }
                     className="btn btn-secondary shrink-0"
                   >
-                    {gig.status === "awaiting_funding" || gig.status === "in_progress"
+                    {gigHasPrivateWorkspace(gig)
                       ? "Open chat"
                       : "Review applicants"}{" "}
                     <ChevronRight className="size-4" />
@@ -8145,8 +9043,11 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     navigate("/admin/login");
   };
   const nav = [
-    ["/admin", "Registered users", UsersRound],
+    ["/admin", "Overview", LayoutDashboard],
+    ["/admin/users", "Registered users", UsersRound],
     ["/admin/verifications", "Verification queue", UserCheck],
+    ["/admin/gigs", "Gigs & payments", BriefcaseBusiness],
+    ["/admin/disputes", "Disputes", AlertCircle],
   ] as const;
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950 lg:grid lg:grid-cols-[272px_1fr]">
@@ -8167,9 +9068,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
           aria-label="Admin navigation"
         >
           {nav.map(([href, label, Icon]) => {
-            const active =
-              pathname === href ||
-              (href === "/admin" && pathname === "/admin/users");
+            const active = pathname === href;
             return (
               <Link
                 href={href}
@@ -8248,6 +9147,214 @@ function AdminPageHeader({
       </div>
       {action}
     </div>
+  );
+}
+
+type AdminOverviewMetrics = {
+  totalUsers: number;
+  registeredToday: number;
+  registeredThisWeek: number;
+  registeredThisMonth: number;
+  emailVerifiedUsers: number;
+  verifiedUsers: number;
+  disabledUsers: number;
+  pendingVerifications: number;
+  openGigs: number;
+  activeGigs: number;
+  completedGigs: number;
+  disputedGigs: number;
+};
+
+function AdminOverviewPage() {
+  const { user } = useAuth();
+  const [metrics, setMetrics] = useState<AdminOverviewMetrics | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadOverview = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/overview", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "Admin metrics could not be loaded."),
+        );
+      }
+      setMetrics(payload.metrics as AdminOverviewMetrics);
+      setGeneratedAt(String(payload.generatedAt ?? ""));
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Admin metrics could not be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadOverview(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadOverview]);
+
+  const userMetrics = metrics
+    ? ([
+        ["Total users", metrics.totalUsers, "All marketplace identities", UsersRound],
+        ["Registered today", metrics.registeredToday, "Since 00:00 UTC", UserCheck],
+        ["This week", metrics.registeredThisWeek, "Since Monday 00:00 UTC", BarChart3],
+        ["This month", metrics.registeredThisMonth, "Since the first day of the month", Clock3],
+        ["Verified students", metrics.verifiedUsers, "Approved student status", BadgeCheck],
+      ] as const)
+    : [];
+
+  return (
+    <RealAdminLayout>
+      <AdminPageHeader
+        title="Marketplace overview"
+        description="Live account, verification, and gig health from Firebase. Administrator identities are excluded from member counts."
+        action={
+          <button
+            type="button"
+            className="btn btn-secondary bg-white"
+            onClick={() => void loadOverview()}
+            disabled={loading}
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        }
+      />
+      {error && (
+        <div
+          className="mt-7 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"
+          role="alert"
+        >
+          <AlertCircle className="mr-2 inline size-4" />
+          {error}
+        </div>
+      )}
+      {loading && !metrics ? (
+        <div
+          className="mt-7 rounded-xl border border-slate-200 bg-white p-10 text-center"
+          role="status"
+        >
+          <Clock3 className="mx-auto size-7 animate-spin text-emerald-700" />
+          <p className="mt-4 font-semibold">Calculating live marketplace totals…</p>
+        </div>
+      ) : metrics ? (
+        <>
+          <section className="mt-7" aria-labelledby="user-health-heading">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 id="user-health-heading" className="font-bold">User growth</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Registration periods use consistent UTC boundaries.
+                </p>
+              </div>
+              {generatedAt && (
+                <p className="text-xs text-slate-500">
+                  Updated {adminDate(generatedAt)}
+                </p>
+              )}
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {userMetrics.map(([label, value, detail, Icon]) => (
+                <article
+                  key={label}
+                  className="rounded-xl border border-slate-200 bg-white p-5"
+                >
+                  <span className="grid size-10 place-items-center rounded-lg bg-emerald-50 text-emerald-800">
+                    <Icon className="size-5" aria-hidden="true" />
+                  </span>
+                  <p className="mt-5 text-sm font-semibold text-slate-500">{label}</p>
+                  <p className="mt-1 font-mono text-3xl font-bold tracking-tight">
+                    {value.toLocaleString()}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+          <section
+            className="mt-6 grid gap-6 xl:grid-cols-2"
+            aria-label="Operational health"
+          >
+            <article className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-bold">Trust and safety</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Identity and account controls requiring oversight.
+                  </p>
+                </div>
+                <ShieldCheck className="size-6 text-emerald-700" aria-hidden="true" />
+              </div>
+              <dl className="mt-5 divide-y divide-slate-200">
+                {[
+                  ["Email-verified users", metrics.emailVerifiedUsers],
+                  ["Pending student reviews", metrics.pendingVerifications],
+                  ["Suspended users", metrics.disabledUsers],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex min-h-12 items-center justify-between gap-4 py-2"
+                  >
+                    <dt className="text-sm text-slate-600">{label}</dt>
+                    <dd className="font-mono font-bold">
+                      {Number(value).toLocaleString()}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <Link
+                href="/admin/verifications"
+                className="btn btn-secondary mt-5 w-full bg-white"
+              >
+                Open verification queue
+              </Link>
+            </article>
+            <article className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-bold">Marketplace health</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Current lifecycle distribution across real gigs.
+                  </p>
+                </div>
+                <BriefcaseBusiness className="size-6 text-emerald-700" aria-hidden="true" />
+              </div>
+              <dl className="mt-5 divide-y divide-slate-200">
+                {[
+                  ["Open for applications", metrics.openGigs],
+                  ["Active contracts", metrics.activeGigs],
+                  ["Completed contracts", metrics.completedGigs],
+                  ["Disputed contracts", metrics.disputedGigs],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex min-h-12 items-center justify-between gap-4 py-2"
+                  >
+                    <dt className="text-sm text-slate-600">{label}</dt>
+                    <dd className="font-mono font-bold">
+                      {Number(value).toLocaleString()}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
+          </section>
+        </>
+      ) : null}
+    </RealAdminLayout>
   );
 }
 
@@ -8529,6 +9636,7 @@ type AdminUserRow = {
   studentVerified: boolean;
   verificationStatus: string;
   emailVerified: boolean;
+  disabled: boolean;
   createdAt: string | null;
   lastSignInAt: string | null;
 };
@@ -8570,11 +9678,13 @@ function AdminUserModal({
   adminUser,
   onClose,
   onDecision,
+  onAccountState,
 }: {
   uid: string;
   adminUser: NonNullable<ReturnType<typeof useAuth>["user"]>;
   onClose: () => void;
   onDecision: (uid: string, status: string) => void;
+  onAccountState?: (uid: string, disabled: boolean) => void;
 }) {
   const dialogReference = useRef<HTMLDialogElement>(null);
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
@@ -8583,6 +9693,7 @@ function AdminUserModal({
   const [decisionBusy, setDecisionBusy] = useState<
     "approved" | "rejected" | ""
   >("");
+  const [accountBusy, setAccountBusy] = useState(false);
 
   useEffect(() => {
     const dialog = dialogReference.current;
@@ -8664,6 +9775,45 @@ function AdminUserModal({
       );
     } finally {
       setDecisionBusy("");
+    }
+  };
+
+  const updateAccountState = async () => {
+    if (!detail) return;
+    const nextDisabled = !detail.disabled;
+    setAccountBusy(true);
+    setError("");
+    try {
+      const token = await adminUser.getIdToken();
+      const response = await fetch(
+        `/api/admin/users/${encodeURIComponent(uid)}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: nextDisabled ? "disable" : "enable" }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "The account state could not be changed."),
+        );
+      }
+      setDetail((current) =>
+        current ? { ...current, disabled: nextDisabled } : current,
+      );
+      onAccountState?.(uid, nextDisabled);
+    } catch (accountError) {
+      setError(
+        accountError instanceof Error
+          ? accountError.message
+          : "The account state could not be changed.",
+      );
+    } finally {
+      setAccountBusy(false);
     }
   };
 
@@ -8792,6 +9942,39 @@ function AdminUserModal({
                   </div>
                 )}
               </section>
+              <section
+                className={`rounded-xl border p-5 ${detail.disabled ? "border-red-200 bg-red-50" : "border-slate-200"}`}
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <LockKeyhole
+                        className={`size-5 ${detail.disabled ? "text-red-700" : "text-slate-600"}`}
+                        aria-hidden="true"
+                      />
+                      <h3 className="font-bold">Account access</h3>
+                    </div>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                      {detail.disabled
+                        ? "This user cannot sign in. Restore access only after resolving the reason for suspension."
+                        : "Suspending immediately blocks sign-in and revokes existing sessions. The action is written to the admin audit log."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={detail.disabled ? "btn btn-primary" : "btn btn-danger"}
+                    disabled={accountBusy}
+                    aria-busy={accountBusy}
+                    onClick={() => void updateAccountState()}
+                  >
+                    {accountBusy
+                      ? "Saving…"
+                      : detail.disabled
+                        ? "Restore access"
+                        : "Suspend user"}
+                  </button>
+                </div>
+              </section>
               <section className="rounded-xl border border-slate-200 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -8915,9 +10098,12 @@ function RealVerificationQueuePage() {
     setError("");
     try {
       const token = await user.getIdToken();
-      const response = await fetch("/api/admin/verifications", {
+      const response = await fetch(
+        `/api/admin/verifications?status=${encodeURIComponent(filter)}`,
+        {
         headers: { Authorization: `Bearer ${token}` },
-      });
+        },
+      );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok)
         throw new Error(
@@ -8933,7 +10119,7 @@ function RealVerificationQueuePage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [filter, user]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
@@ -9134,6 +10320,11 @@ function AdminUsersPage() {
       ),
     );
   };
+  const updateAccountState = (uid: string, disabled: boolean) => {
+    setUsers((current) =>
+      current.map((item) => (item.uid === uid ? { ...item, disabled } : item)),
+    );
+  };
 
   return (
     <RealAdminLayout>
@@ -9190,6 +10381,7 @@ function AdminUsersPage() {
                     <th>Email ownership</th>
                     <th>School status</th>
                     <th>Onboarding</th>
+                    <th>Account</th>
                     <th>Last sign-in</th>
                   </tr>
                 </thead>
@@ -9240,6 +10432,18 @@ function AdminUsersPage() {
                       <td>
                         {item.onboardingComplete ? "Complete" : "Not complete"}
                       </td>
+                      <td>
+                        <span
+                          className={`status ${item.disabled ? "status-rejected" : "status-completed"}`}
+                        >
+                          {item.disabled ? (
+                            <LockKeyhole className="size-3.5" />
+                          ) : (
+                            <CheckCircle2 className="size-3.5" />
+                          )}
+                          {item.disabled ? "Suspended" : "Active"}
+                        </span>
+                      </td>
                       <td className="text-xs text-slate-600">
                         {adminDate(item.lastSignInAt)}
                       </td>
@@ -9286,8 +10490,440 @@ function AdminUsersPage() {
           adminUser={user}
           onClose={() => setSelectedUid("")}
           onDecision={updateDecision}
+          onAccountState={updateAccountState}
         />
       )}
+    </RealAdminLayout>
+  );
+}
+
+type AdminGigRow = {
+  id: string;
+  title: string;
+  category: string;
+  clientName: string;
+  studentName: string;
+  budget: number;
+  currency: string;
+  applicantCount: number;
+  status: string;
+  paymentStatus: string;
+  fundingSignature: string;
+  releaseSignature: string;
+  createdAt: string | null;
+};
+
+function RealAdminGigsPage() {
+  const { user } = useAuth();
+  const [gigs, setGigs] = useState<AdminGigRow[]>([]);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadGigs = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/gigs", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Gigs could not be loaded."));
+      }
+      setGigs(Array.isArray(payload.gigs) ? payload.gigs : []);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "Gigs could not be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadGigs(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadGigs]);
+
+  const statuses = Array.from(new Set(gigs.map((item) => item.status))).sort();
+  const visibleGigs = gigs.filter((item) => {
+    const matchesQuery = `${item.title} ${item.clientName} ${item.studentName} ${item.id}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
+    return matchesQuery && (status === "all" || item.status === status);
+  });
+
+  return (
+    <RealAdminLayout>
+      <AdminPageHeader
+        title="Gigs & payments"
+        description="Inspect the real contract lifecycle, participants, settlement choice, and transaction evidence. Funded work is never cancelled from this screen."
+        action={
+          <button
+            type="button"
+            className="btn btn-secondary bg-white"
+            onClick={() => void loadGigs()}
+            disabled={loading}
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        }
+      />
+      <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-3 size-4 text-slate-500" />
+          <input
+            type="search"
+            className="input min-h-11 w-full bg-white pl-9 text-sm"
+            placeholder="Search gig, client, student, or ID"
+            aria-label="Search gigs"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <select
+          className="input min-h-11 bg-white text-sm sm:w-56"
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+          aria-label="Filter gigs by status"
+        >
+          <option value="all">All statuses</option>
+          {statuses.map((item) => (
+            <option value={item} key={item}>{item.replaceAll("_", " ")}</option>
+          ))}
+        </select>
+      </div>
+      {error && (
+        <div className="mt-7 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800" role="alert">
+          <AlertCircle className="mr-2 inline size-4" />
+          {error}
+        </div>
+      )}
+      {loading ? (
+        <div className="mt-7 rounded-xl border border-slate-200 bg-white p-10 text-center" role="status">
+          <Clock3 className="mx-auto size-7 animate-spin text-emerald-700" />
+          <p className="mt-4 font-semibold">Loading marketplace contracts…</p>
+        </div>
+      ) : !error && visibleGigs.length === 0 ? (
+        <div className="mt-7 rounded-xl border border-slate-200 bg-white p-10 text-center">
+          <BriefcaseBusiness className="mx-auto size-8 text-slate-400" />
+          <p className="mt-4 font-semibold">No gigs match this view.</p>
+        </div>
+      ) : !error ? (
+        <>
+          <div className="table-wrap mt-7 border-slate-200">
+            <table className="data-table min-w-[1180px]">
+              <thead>
+                <tr>
+                  <th>Gig</th>
+                  <th>Client</th>
+                  <th>Selected student</th>
+                  <th>Amount</th>
+                  <th>Applicants</th>
+                  <th>Gig status</th>
+                  <th>Payment</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleGigs.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <p className="max-w-xs font-semibold">{item.title}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-500">{item.id}</p>
+                    </td>
+                    <td>{item.clientName}</td>
+                    <td>{item.studentName || "Not selected"}</td>
+                    <td className="font-mono font-semibold">
+                      {item.currency === "USDC"
+                        ? `${item.budget.toLocaleString()} USDC`
+                        : `${item.currency} ${item.budget.toLocaleString()}`}
+                    </td>
+                    <td>{item.applicantCount.toLocaleString()}</td>
+                    <td>
+                      <span className={`status ${item.status === "completed" ? "status-completed" : item.status === "disputed" || item.status === "cancelled" ? "status-rejected" : item.status === "open" ? "status-open" : "status-submitted"}`}>
+                        {item.status.replaceAll("_", " ")}
+                      </span>
+                    </td>
+                    <td>
+                      <p className="text-sm font-semibold">
+                        {item.paymentStatus ? item.paymentStatus.replaceAll("_", " ") : "Not created"}
+                      </p>
+                      {(item.releaseSignature || item.fundingSignature) && (
+                        <a
+                          className="mt-1 inline-block text-xs font-semibold text-emerald-800 underline underline-offset-4"
+                          href={`https://explorer.solana.com/tx/${encodeURIComponent(item.releaseSignature || item.fundingSignature)}?cluster=devnet`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View transaction
+                        </a>
+                      )}
+                    </td>
+                    <td className="text-xs text-slate-600">{adminDate(item.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 text-sm text-slate-600">
+            Showing {visibleGigs.length} of {gigs.length} recent gigs
+          </p>
+        </>
+      ) : null}
+    </RealAdminLayout>
+  );
+}
+
+type AdminDisputeRow = {
+  gigId: string;
+  gigTitle: string;
+  clientName: string;
+  studentName: string;
+  status: string;
+  category: string;
+  description: string;
+  openedByRole: string;
+  resolutionNote: string;
+  createdAt: string | null;
+  resolvedAt: string | null;
+};
+
+function RealAdminDisputesPage() {
+  const { user } = useAuth();
+  const [disputes, setDisputes] = useState<AdminDisputeRow[]>([]);
+  const [filter, setFilter] = useState<"open" | "all">("open");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [resolvingId, setResolvingId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadDisputes = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/disputes", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Disputes could not be loaded."));
+      }
+      setDisputes(Array.isArray(payload.disputes) ? payload.disputes : []);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Disputes could not be loaded.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadDisputes(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadDisputes]);
+
+  const visibleDisputes = disputes.filter(
+    (item) => filter === "all" || item.status === "open",
+  );
+
+  const resolveDispute = async (gigId: string) => {
+    if (!user) return;
+    const resolutionNote = String(notes[gigId] ?? "").trim();
+    if (resolutionNote.length < 20) {
+      setError("Add a clear resolution note of at least 20 characters before resuming the contract.");
+      return;
+    }
+    setResolvingId(gigId);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/disputes", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ gigId, action: "resume", resolutionNote }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "The dispute could not be resolved."));
+      }
+      setDisputes((current) =>
+        current.map((item) =>
+          item.gigId === gigId
+            ? {
+                ...item,
+                status: "resolved",
+                resolutionNote,
+                resolvedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      );
+      setNotes((current) => ({ ...current, [gigId]: "" }));
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "The dispute could not be resolved.",
+      );
+    } finally {
+      setResolvingId("");
+    }
+  };
+
+  return (
+    <RealAdminLayout>
+      <AdminPageHeader
+        title="Dispute operations"
+        description="Review frozen contracts and record an auditable resolution. Resuming restores the exact pre-dispute work and payment state."
+        action={
+          <select
+            className="input min-h-11 w-auto bg-white text-sm"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value as "open" | "all")}
+            aria-label="Filter disputes"
+          >
+            <option value="open">Open cases</option>
+            <option value="all">All cases</option>
+          </select>
+        }
+      />
+      <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
+        <AlertCircle className="mr-2 inline size-4" aria-hidden="true" />
+        Payment release stays frozen while a case is open. Refunds are not simulated here; they require a separate confirmed on-chain transfer and reconciliation record.
+      </div>
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-800" role="alert">
+          <AlertCircle className="mr-2 inline size-4" aria-hidden="true" />
+          {error}
+          <button
+            type="button"
+            className="btn btn-secondary ml-3 bg-white"
+            onClick={() => void loadDisputes()}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {loading ? (
+        <div className="mt-7 grid gap-5" role="status" aria-label="Loading dispute records">
+          {[0, 1].map((item) => (
+            <div className="rounded-xl border border-slate-200 bg-white p-6" key={item}>
+              <div className="h-5 w-32 rounded bg-slate-200" />
+              <div className="mt-4 h-6 w-2/3 rounded bg-slate-200" />
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="h-16 rounded-lg bg-slate-100" />
+                <div className="h-16 rounded-lg bg-slate-100" />
+              </div>
+              <div className="mt-5 h-20 rounded-lg bg-slate-100" />
+            </div>
+          ))}
+          <span className="sr-only">Loading dispute records…</span>
+        </div>
+      ) : !error && visibleDisputes.length === 0 ? (
+        <div className="mt-7 rounded-xl border border-slate-200 bg-white p-10 text-center">
+          <ShieldCheck className="mx-auto size-8 text-emerald-700" aria-hidden="true" />
+          <p className="mt-4 font-semibold">
+            {filter === "open" ? "No open disputes." : "No dispute records yet."}
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+            Participant reports will appear here after the contract payment has been secured.
+          </p>
+        </div>
+      ) : visibleDisputes.length > 0 ? (
+        <div className="mt-7 grid gap-5">
+          {visibleDisputes.map((item) => {
+            const note = notes[item.gigId] ?? "";
+            const isOpen = item.status === "open";
+            return (
+              <article key={item.gigId} className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`status ${isOpen ? "status-rejected" : "status-completed"}`}>
+                        {isOpen ? <AlertCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                        {item.status}
+                      </span>
+                      <span className="status status-submitted">
+                        {item.category.replaceAll("_", " ")}
+                      </span>
+                    </div>
+                    <h2 className="mt-3 text-lg font-bold">{item.gigTitle}</h2>
+                    <p className="mt-1 font-mono text-xs text-slate-500">{item.gigId}</p>
+                  </div>
+                  <div className="text-sm text-slate-600 sm:text-right">
+                    <p>Opened by the {item.openedByRole || "participant"}</p>
+                    <p className="mt-1">{adminDate(item.createdAt)}</p>
+                  </div>
+                </div>
+                <dl className="mt-5 grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Client</dt>
+                    <dd className="mt-1 text-sm font-semibold">{item.clientName}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Student</dt>
+                    <dd className="mt-1 text-sm font-semibold">{item.studentName}</dd>
+                  </div>
+                </dl>
+                <div className="mt-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Participant report</p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{item.description}</p>
+                </div>
+                {isOpen ? (
+                  <div className="mt-5 border-t border-slate-200 pt-5">
+                    <label className="text-sm font-semibold" htmlFor={`resolution-${item.gigId}`}>
+                      Resolution note
+                    </label>
+                    <textarea
+                      id={`resolution-${item.gigId}`}
+                      className="input mt-2 min-h-28 w-full resize-y bg-white text-sm"
+                      maxLength={1000}
+                      placeholder="Record what was reviewed, the decision, and why the contract is safe to resume."
+                      value={note}
+                      onChange={(event) =>
+                        setNotes((current) => ({ ...current, [item.gigId]: event.target.value }))
+                      }
+                    />
+                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-slate-500">{note.trim().length}/1,000 characters · minimum 20</p>
+                      <button
+                        type="button"
+                        className="btn bg-slate-950 text-white hover:bg-slate-800"
+                        disabled={resolvingId === item.gigId || note.trim().length < 20}
+                        onClick={() => void resolveDispute(item.gigId)}
+                      >
+                        {resolvingId === item.gigId ? "Resolving…" : "Resolve and resume contract"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-5 border-t border-slate-200 pt-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recorded resolution</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{item.resolutionNote || "Resolution recorded."}</p>
+                    <p className="mt-2 text-xs text-slate-500">Resolved {adminDate(item.resolvedAt)}</p>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
     </RealAdminLayout>
   );
 }
@@ -9662,6 +11298,7 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (route[0] === "gigs" && route[1])
     page = <MarketplaceGigDetailLivePage id={route[1]} />;
   else if (path === "applications") page = <MarketplaceApplicationsPage />;
+  else if (path === "notifications") page = <NotificationsPage />;
   else if (path === "profile") page = <ProfileWorkspacePage />;
   else if (path === "profile/edit") page = <EditProfileWorkspacePage />;
   else if (path === "profile/verification") page = <StudentVerificationPage />;
@@ -9671,14 +11308,17 @@ function CampusGigRouter({ route }: RouteProps) {
     page = <MarketplaceApplicantsPage id={route[1]} />;
   else if (path === "escrow") page = <FundEscrowPage />;
   else if (path === "review") page = <ReviewReleasePage />;
-  else if (path === "admin" || path === "admin/users")
-    page = <AdminUsersPage />;
+  else if (path === "admin") page = <AdminOverviewPage />;
+  else if (path === "admin/users") page = <AdminUsersPage />;
   else if (path === "admin/verifications") page = <RealVerificationQueuePage />;
+  else if (path === "admin/gigs") page = <RealAdminGigsPage />;
+  else if (path === "admin/disputes") page = <RealAdminDisputesPage />;
   else page = <PlaceholderPage route={route} />;
 
   const protectedPath =
     [
       "applications",
+      "notifications",
       "profile",
       "profile/edit",
       "profile/verification",
@@ -9693,6 +11333,8 @@ function CampusGigRouter({ route }: RouteProps) {
     "admin",
     "admin/users",
     "admin/verifications",
+    "admin/gigs",
+    "admin/disputes",
   ].includes(path);
   if (protectedAdminPath)
     return <AdminProtectedRoute>{page}</AdminProtectedRoute>;

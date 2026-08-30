@@ -6,6 +6,8 @@ import {
   type MarketplaceGig,
   type SettlementPreference,
 } from "@/app/lib/gigs";
+import { gigStatus } from "@/app/lib/gig-contracts";
+import { writeGigEvent } from "@/app/lib/gig-audit";
 import {
   apiErrorResponse,
   ApiAuthError,
@@ -60,7 +62,8 @@ function gigFromDocument(
     ) as SettlementPreference,
     budget: Number(data.budget ?? 0),
     deadline: String(data.deadline ?? ""),
-    status: String(data.status ?? "open") as MarketplaceGig["status"],
+    status: gigStatus(data.status ?? "open"),
+    version: Number(data.version ?? 1),
     applicantCount: Number(data.applicantCount ?? 0),
     posterName: String(data.posterName ?? "CampusGig member"),
     posterUniversity: String(data.posterUniversity ?? "Institution not added"),
@@ -194,6 +197,7 @@ export async function POST(request: Request) {
       budget,
       deadline,
       status: "open",
+      version: 1,
       applicantCount: 0,
       posterName,
       posterUniversity,
@@ -202,7 +206,18 @@ export async function POST(request: Request) {
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
-    await document.create(record);
+    await adminDb.runTransaction(async (transaction) => {
+      transaction.create(document, record);
+      writeGigEvent(transaction, document, {
+        id: "gig_created_v1",
+        type: "gig_created",
+        actorId: decoded.uid,
+        actorRole: "client",
+        fromStatus: "draft",
+        toStatus: "open",
+        metadata: { settlementPreference, currency: record.currency },
+      });
+    });
     const created = await document.get();
 
     return Response.json(

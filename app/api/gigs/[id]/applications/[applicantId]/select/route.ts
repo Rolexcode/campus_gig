@@ -1,5 +1,8 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
+import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
+import { writeGigEvent } from "@/app/lib/gig-audit";
+import { writeUserNotification } from "@/app/lib/user-notifications";
 import {
   apiErrorResponse,
   ApiAuthError,
@@ -57,16 +60,25 @@ export async function POST(
         );
       if (!selectedSnapshot.exists)
         throw new ApiAuthError("That application could not be found.", 404);
-      if (String(gig.status ?? "open") !== "open") {
-        if (String(gig.selectedApplicantId ?? "") === applicantId) return;
+      const currentStatus = gigStatus(gig.status ?? "open");
+      if (currentStatus !== "open") {
+        if (
+          String(gig.selectedApplicantId ?? "") === applicantId &&
+          ["hired", "terms_pending", "awaiting_funding", "in_progress", "submitted", "completed"].includes(
+            currentStatus,
+          )
+        )
+          return;
         throw new ApiAuthError(
           "A student has already been selected for this gig.",
           409,
         );
       }
+      assertGigTransition(currentStatus, "hired");
       const selected = selectedSnapshot.data() ?? {};
       transaction.update(gigReference, {
-        status: "awaiting_funding",
+        status: "hired",
+        version: FieldValue.increment(1),
         selectedApplicantId: applicantId,
         selectedApplicantName: String(
           selected.applicantName ?? "CampusGig student",
@@ -98,17 +110,43 @@ export async function POST(
         });
       }
       for (const document of allApplications.docs) {
+        const application = document.data() ?? {};
+        const applicationUserId = String(application.applicantId ?? "");
+        const accepted = document.id === selectedReference.id;
         transaction.update(document.ref, {
-          status:
-            document.id === selectedReference.id ? "accepted" : "rejected",
+          status: accepted ? "accepted" : "rejected",
           updatedAt: FieldValue.serverTimestamp(),
         });
+        writeUserNotification(transaction, adminDb, {
+          userId: applicationUserId,
+          eventId: `application_decision_${id}`,
+          type: accepted ? "hiring" : "application",
+          title: accepted ? "You were selected" : "Application update",
+          body: accepted
+            ? `The client selected you for “${String(gig.title ?? "this gig")}”. Open the contract chat to agree final terms.`
+            : `The client chose another applicant for “${String(gig.title ?? "this gig")}”.`,
+          href: accepted ? `/gigs/${id}/conversation` : "/applications",
+          gigId: id,
+          actorId: decoded.uid,
+        });
       }
+      writeGigEvent(transaction, gigReference, {
+        id: `student_selected_${applicantId}`,
+        type: "student_selected",
+        actorId: decoded.uid,
+        actorRole: "client",
+        fromStatus: currentStatus,
+        toStatus: "hired",
+        metadata: {
+          applicantId,
+          applicationId: selectedReference.id,
+        },
+      });
     });
 
     return Response.json({
       ok: true,
-      status: "awaiting_funding",
+      status: "hired",
       selectedApplicantId: applicantId,
     });
   } catch (error) {

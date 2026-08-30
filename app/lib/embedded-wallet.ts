@@ -3,7 +3,6 @@ import "server-only";
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   randomBytes,
 } from "node:crypto";
 import { Keypair } from "@solana/web3.js";
@@ -17,7 +16,13 @@ function encryptionKey() {
   }
 
   const decoded = Buffer.from(configured, "base64");
-  return decoded.length === 32 ? decoded : createHash("sha256").update(configured).digest();
+  const canonical = decoded.toString("base64");
+  if (decoded.length !== 32 || canonical !== configured.replace(/\s+/g, "")) {
+    throw new Error(
+      "WALLET_ENCRYPTION_KEY must be a cryptographically random 32-byte base64 value.",
+    );
+  }
+  return decoded;
 }
 
 export function createEmbeddedWallet() {

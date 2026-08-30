@@ -13,9 +13,9 @@ function codeHash(uid: string, email: string, code: string, secret: string) {
 
 export async function POST(request: Request) {
   try {
-    const resendApiKey = process.env.RESEND_API_KEY?.trim();
-    if (!resendApiKey || resendApiKey.startsWith("replace_")) {
-      throw new Error("Resend is not configured. Add RESEND_API_KEY to .env.local.");
+    const hmacSecret = process.env.STUDENT_VERIFICATION_HMAC_SECRET?.trim();
+    if (!hmacSecret || hmacSecret.startsWith("replace_")) {
+      throw new Error("Student verification is not configured securely.");
     }
 
     const decoded = await requireFirebaseUser(request);
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     }
 
     const expectedHash = Buffer.from(String(data.codeHash), "hex");
-    const suppliedHash = Buffer.from(codeHash(decoded.uid, schoolEmail, code, resendApiKey), "hex");
+    const suppliedHash = Buffer.from(codeHash(decoded.uid, schoolEmail, code, hmacSecret), "hex");
     const matches = expectedHash.length === suppliedHash.length && timingSafeEqual(expectedHash, suppliedHash);
     if (!matches) {
       await codeReference.update({ attempts: FieldValue.increment(1) });

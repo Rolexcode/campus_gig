@@ -10,6 +10,8 @@ import tseslint from "typescript-eslint";
 const eslintConfig = defineConfig([
   globalIgnores([
     ".next/**",
+    ".next-build/**",
+    ".superstack/**",
     "dist/**",
     "out/**",
     "build/**",
