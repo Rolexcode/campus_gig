@@ -831,6 +831,7 @@ function PublicHeader() {
   const links = user
     ? [
         ["/gigs", "Browse gigs"],
+        ["/people", "Find people"],
         ["/post", "Post a gig"],
         ["/profile", "Profile"],
       ]
@@ -923,6 +924,7 @@ function AppHeader() {
   const pathname = useAppPathname();
   const links = [
     ["/gigs", "Browse gigs"],
+    ["/people", "Find people"],
     ["/applications", "My applications"],
     ["/post", "Post a gig"],
     ["/my-gigs", "My posted gigs"],
@@ -1601,6 +1603,7 @@ function SignupPage() {
     try {
       await signUp(
         String(form.get("fullName")),
+        String(form.get("username")),
         String(form.get("email")),
         String(form.get("password")),
       );
@@ -1634,6 +1637,10 @@ function SignupPage() {
             {visibleError}
           </div>
         )}
+        <fieldset
+          disabled={busy || Boolean(configurationError)}
+          className={`space-y-5 transition-opacity ${busy ? "opacity-55" : ""}`}
+        >
         <div className="field">
           <label htmlFor="full-name">Full name</label>
           <input
@@ -1646,6 +1653,26 @@ function SignupPage() {
             placeholder="Tobi Okafor"
             required
           />
+        </div>
+        <div className="field">
+          <label htmlFor="username">Username</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-3.5 font-semibold text-muted">@</span>
+            <input
+              className="input pl-8"
+              id="username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              spellCheck={false}
+              minLength={3}
+              maxLength={30}
+              pattern="[A-Za-z][A-Za-z0-9_]{2,29}"
+              placeholder="tobi_okafor"
+              required
+            />
+          </div>
+          <p className="field-hint">3–30 letters, numbers, or underscores. Start with a letter.</p>
         </div>
         <div className="field">
           <label htmlFor="email">Email address</label>
@@ -1705,6 +1732,7 @@ function SignupPage() {
             .
           </span>
         </label>
+        </fieldset>
         <button
           className="btn btn-primary w-full"
           type="submit"
@@ -1787,6 +1815,10 @@ function LoginPage() {
             {visibleError}
           </div>
         )}
+        <fieldset
+          disabled={busy || Boolean(configurationError)}
+          className={`space-y-5 transition-opacity ${busy ? "opacity-55" : ""}`}
+        >
         <div className="field">
           <label htmlFor="login-email">Email address</label>
           <input
@@ -1803,14 +1835,17 @@ function LoginPage() {
         <div className="field">
           <div className="flex items-center justify-between">
             <label htmlFor="login-password">Password</label>
-            <button
-              type="button"
-              className="text-link min-h-10"
-              onClick={() => setShow(!show)}
-              aria-label={show ? "Hide password" : "Show password"}
-            >
-              {show ? "Hide" : "Show"}
-            </button>
+            <div className="flex items-center gap-3">
+              <Link href="/forgot-password" className="text-link min-h-10 content-center">Forgot password?</Link>
+              <button
+                type="button"
+                className="text-link min-h-10"
+                onClick={() => setShow(!show)}
+                aria-label={show ? "Hide password" : "Show password"}
+              >
+                {show ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           <input
             className="input"
@@ -1825,13 +1860,18 @@ function LoginPage() {
         <p className="text-xs leading-5 text-muted">
           Your session stays signed in on this browser until you log out.
         </p>
+        </fieldset>
         <button
           className="btn btn-primary w-full"
           type="submit"
           disabled={busy || Boolean(configurationError)}
           aria-busy={busy}
         >
-          {busy ? "Logging in…" : "Log in"}
+          {busy ? (
+            <><Clock3 className="size-4 animate-spin" /> Logging in…</>
+          ) : (
+            <>Log in <ArrowRight className="size-4" /></>
+          )}
         </button>
         <p className="flex items-start justify-center gap-2 text-center text-xs leading-5 text-muted">
           <ShieldCheck
@@ -1842,6 +1882,273 @@ function LoginPage() {
         </p>
       </form>
     </AuthShell>
+  );
+}
+
+function ForgotPasswordPage({ admin = false }: { admin?: boolean }) {
+  const { requestPasswordReset, configurationError } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      await requestPasswordReset(String(form.get("email")));
+      setSent(true);
+    } catch (submitError) {
+      setError(firebaseErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const content = sent ? (
+    <div className="space-y-5 text-center" role="status">
+      <span className={`mx-auto grid size-12 place-items-center rounded-full ${admin ? "bg-emerald-100 text-emerald-800" : "bg-primary-soft text-primary"}`}>
+        <CheckCircle2 className="size-6" aria-hidden="true" />
+      </span>
+      <div>
+        <h2 className="text-xl font-bold">Check your inbox</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          If an account exists for that email, Firebase has sent a password-reset link. Check spam too.
+        </p>
+      </div>
+      <Link
+        href={admin ? "/admin/login" : "/login"}
+        className={`btn w-full ${admin ? "bg-slate-950 text-white hover:bg-slate-800" : "btn-primary"}`}
+      >
+        Back to login
+      </Link>
+    </div>
+  ) : (
+    <form className="space-y-5" onSubmit={submit} aria-busy={busy}>
+      {(error || configurationError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800" role="alert">
+          <AlertCircle className="mr-2 inline size-4" />
+          {error || configurationError}
+        </div>
+      )}
+      <fieldset disabled={busy || Boolean(configurationError)} className={busy ? "opacity-55" : ""}>
+        <div className="field">
+          <label htmlFor={admin ? "admin-reset-email" : "reset-email"}>Email address</label>
+          <input
+            className="input"
+            id={admin ? "admin-reset-email" : "reset-email"}
+            name="email"
+            type="email"
+            autoComplete="email"
+            spellCheck={false}
+            placeholder={admin ? "admin@example.com" : "tobi@example.com"}
+            required
+          />
+          <p className="field-hint">Use the email attached to the account you want to recover.</p>
+        </div>
+      </fieldset>
+      <button
+        className={`btn w-full ${admin ? "bg-slate-950 text-white hover:bg-slate-800" : "btn-primary"}`}
+        type="submit"
+        disabled={busy || Boolean(configurationError)}
+      >
+        {busy ? <><Clock3 className="size-4 animate-spin" /> Sending secure link…</> : <>Send reset link <ArrowRight className="size-4" /></>}
+      </button>
+    </form>
+  );
+
+  if (admin) {
+    return (
+      <AdminAuthShell
+        title="Reset administrator password"
+        description="Firebase will send a secure reset link to your approved administrator email."
+        footer={<Link className="font-semibold text-emerald-700 underline underline-offset-4" href="/admin/login">Back to admin login</Link>}
+      >
+        {content}
+      </AdminAuthShell>
+    );
+  }
+  return (
+    <AuthShell
+      title="Reset your password"
+      description="Enter your account email and we’ll send a secure Firebase reset link."
+      footer={<Link className="text-link" href="/login">Back to login</Link>}
+    >
+      {content}
+    </AuthShell>
+  );
+}
+
+function PasswordSecurityForm({ admin = false }: { admin?: boolean }) {
+  const { changePassword } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    const form = new FormData(event.currentTarget);
+    const currentPassword = String(form.get("currentPassword"));
+    const nextPassword = String(form.get("nextPassword"));
+    const confirmation = String(form.get("confirmation"));
+    if (nextPassword !== confirmation) {
+      setError("The new passwords do not match.");
+      return;
+    }
+    if (currentPassword === nextPassword) {
+      setError("Choose a new password that is different from your current password.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      await changePassword(currentPassword, nextPassword);
+      event.currentTarget.reset();
+      setSaved(true);
+    } catch (submitError) {
+      setError(firebaseErrorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="space-y-5" onSubmit={submit} aria-busy={busy}>
+      {saved && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800" role="status">
+          <CheckCircle2 className="mr-2 inline size-4" /> Password updated successfully.
+        </div>
+      )}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800" role="alert">
+          <AlertCircle className="mr-2 inline size-4" /> {error}
+        </div>
+      )}
+      <fieldset disabled={busy} className={`space-y-5 transition-opacity ${busy ? "opacity-55" : ""}`}>
+        <div className="field">
+          <label htmlFor={`${admin ? "admin-" : ""}current-password`}>Current password</label>
+          <input className="input" id={`${admin ? "admin-" : ""}current-password`} name="currentPassword" type="password" autoComplete="current-password" required />
+        </div>
+        <div className="field">
+          <label htmlFor={`${admin ? "admin-" : ""}new-password`}>New password</label>
+          <input className="input" id={`${admin ? "admin-" : ""}new-password`} name="nextPassword" type="password" autoComplete="new-password" minLength={8} required />
+          <p className="field-hint">Use at least 8 characters and avoid a reused password.</p>
+        </div>
+        <div className="field">
+          <label htmlFor={`${admin ? "admin-" : ""}confirm-password`}>Confirm new password</label>
+          <input className="input" id={`${admin ? "admin-" : ""}confirm-password`} name="confirmation" type="password" autoComplete="new-password" minLength={8} required />
+        </div>
+      </fieldset>
+      <button className={`btn w-full ${admin ? "bg-slate-950 text-white hover:bg-slate-800" : "btn-primary"}`} type="submit" disabled={busy}>
+        {busy ? <><Clock3 className="size-4 animate-spin" /> Updating password…</> : "Update password"}
+      </button>
+    </form>
+  );
+}
+
+function PasswordSecurityPage({ admin = false }: { admin?: boolean }) {
+  if (admin) {
+    return (
+      <RealAdminLayout>
+        <AdminPageHeader title="Account security" description="Change the password for this administrator identity." />
+        <section className="mt-7 max-w-xl rounded-xl border border-slate-200 bg-white p-5 sm:p-7">
+          <PasswordSecurityForm admin />
+        </section>
+      </RealAdminLayout>
+    );
+  }
+  return (
+    <AppLayout>
+      <section className="page-shell max-w-3xl py-8 sm:py-12">
+        <PageHeader eyebrow="Account" title="Password and security" description="Update your password after confirming the current one." />
+        <div className="card mt-8 p-5 sm:p-8"><PasswordSecurityForm /></div>
+      </section>
+    </AppLayout>
+  );
+}
+
+type PeopleSearchResult = {
+  uid: string;
+  username: string;
+  fullName: string;
+  university: string;
+  headline: string;
+  skills: string;
+  photoDataUrl: string;
+  studentVerified: boolean;
+  averageRating: number;
+  completedGigCount: number;
+};
+
+function PeoplePage() {
+  const { user } = useAuth();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PeopleSearchResult[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const searchPeople = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error ?? "People could not be searched."));
+      setResults(Array.isArray(payload.users) ? payload.users : []);
+      setSearched(true);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : "People could not be searched.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AppLayout>
+      <section className="page-shell py-8 sm:py-12">
+        <PageHeader eyebrow="Community" title="Find people by username" description="Search CampusGig profiles without exposing private email addresses." />
+        <form className="mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row" onSubmit={searchPeople}>
+          <div className="relative flex-1">
+            <span className="pointer-events-none absolute left-4 top-3.5 font-semibold text-muted">@</span>
+            <input className="input pl-9" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search username" aria-label="Search by username" disabled={busy} required />
+          </div>
+          <button className="btn btn-primary sm:min-w-32" type="submit" disabled={busy}>
+            {busy ? <><Clock3 className="size-4 animate-spin" /> Searching…</> : <><Search className="size-4" /> Search</>}
+          </button>
+        </form>
+        {error && <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert"><AlertCircle className="mr-2 inline size-4" />{error}</div>}
+        {searched && !busy && results.length === 0 && !error && (
+          <div className="card mt-8 p-10 text-center"><UsersRound className="mx-auto size-8 text-muted" /><p className="mt-4 font-semibold">No profiles match that username.</p><p className="mt-2 text-sm text-muted">Try a shorter prefix or check the spelling.</p></div>
+        )}
+        {results.length > 0 && (
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {results.map((person) => (
+              <article className="card p-5" key={person.uid}>
+                <div className="flex items-center gap-4">
+                  <ProfileAvatar name={person.fullName} src={person.photoDataUrl} />
+                  <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate font-bold">{person.fullName}</h2>{person.studentVerified && <BadgeCheck className="size-4 shrink-0 text-primary" aria-label="Verified student" />}</div><p className="mt-1 truncate text-sm font-semibold text-primary">@{person.username}</p></div>
+                </div>
+                <p className="mt-4 text-sm font-semibold">{person.headline || "CampusGig member"}</p>
+                <p className="mt-1 text-sm text-muted">{person.university || "Institution not added"}</p>
+                {person.skills && <p className="mt-4 line-clamp-2 text-xs leading-5 text-muted">{person.skills}</p>}
+                <div className="mt-5 flex gap-4 border-t border-border pt-4 text-xs text-muted"><span><strong className="text-foreground">{person.completedGigCount}</strong> completed</span><span><strong className="text-foreground">{person.averageRating || "—"}</strong> rating</span></div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </AppLayout>
   );
 }
 
@@ -2144,6 +2451,7 @@ function AdminSignupPage() {
             {visibleError}
           </div>
         )}
+        <fieldset disabled={busy || Boolean(configurationError)} className={`space-y-5 transition-opacity ${busy ? "opacity-55" : ""}`}>
         <div className="field">
           <label htmlFor="admin-full-name">Full name</label>
           <input
@@ -2197,6 +2505,7 @@ function AdminSignupPage() {
           />
           <p className="field-hint">Use 8 or more characters.</p>
         </div>
+        </fieldset>
         <button
           className="btn w-full bg-slate-950 text-white hover:bg-slate-800"
           type="submit"
@@ -2281,6 +2590,7 @@ function AdminLoginPage() {
             {visibleError}
           </div>
         )}
+        <fieldset disabled={busy || Boolean(configurationError)} className={`space-y-5 transition-opacity ${busy ? "opacity-55" : ""}`}>
         <div className="field">
           <label htmlFor="admin-login-email">Admin email</label>
           <input
@@ -2297,14 +2607,17 @@ function AdminLoginPage() {
         <div className="field">
           <div className="flex items-center justify-between">
             <label htmlFor="admin-login-password">Password</label>
-            <button
-              type="button"
-              className="min-h-10 font-semibold text-emerald-700 underline underline-offset-4"
-              onClick={() => setShow(!show)}
-              aria-label={show ? "Hide password" : "Show password"}
-            >
-              {show ? "Hide" : "Show"}
-            </button>
+            <div className="flex items-center gap-3">
+              <Link href="/admin/forgot-password" className="min-h-10 content-center font-semibold text-emerald-700 underline underline-offset-4">Forgot password?</Link>
+              <button
+                type="button"
+                className="min-h-10 font-semibold text-emerald-700 underline underline-offset-4"
+                onClick={() => setShow(!show)}
+                aria-label={show ? "Hide password" : "Show password"}
+              >
+                {show ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           <input
             className="input"
@@ -2316,13 +2629,14 @@ function AdminLoginPage() {
             required
           />
         </div>
+        </fieldset>
         <button
           className="btn w-full bg-slate-950 text-white hover:bg-slate-800"
           type="submit"
           disabled={busy || Boolean(configurationError)}
           aria-busy={busy}
         >
-          {busy ? "Checking access…" : "Open admin console"}
+          {busy ? <><Clock3 className="size-4 animate-spin" /> Checking access…</> : <>Open admin console <ArrowRight className="size-4" /></>}
         </button>
       </form>
     </AdminAuthShell>
@@ -3498,6 +3812,9 @@ function ProfileWorkspacePage() {
                       </span>
                     )}
                   </div>
+                  {profile?.username && (
+                    <p className="mt-1 font-semibold text-primary">@{profile.username}</p>
+                  )}
                   <p className="mt-2 text-secondary">
                     {state.profileHeadline ||
                       "Add a short professional headline"}
@@ -3707,6 +4024,9 @@ function ProfileWorkspacePage() {
               >
                 Edit profile
               </Link>
+              <Link href="/settings/security" className="btn btn-secondary mt-2 w-full">
+                Password &amp; security
+              </Link>
             </div>
           </aside>
         </div>
@@ -3717,7 +4037,7 @@ function ProfileWorkspacePage() {
 
 function EditProfileWorkspacePage() {
   const [state, setState] = useAppState();
-  const { saveProfile: persistProfile } = useAuth();
+  const { profile, saveProfile: persistProfile } = useAuth();
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -3725,6 +4045,7 @@ function EditProfileWorkspacePage() {
   const [university, setUniversity] = useState(state.profileUniversity);
   const [course, setCourse] = useState(state.profileCourse);
   const [name, setName] = useState(state.profileName);
+  const [username, setUsername] = useState(profile?.username ?? "");
   const [headline, setHeadline] = useState(state.profileHeadline);
   const [bio, setBio] = useState(state.profileBio);
   const [skills, setSkills] = useState(state.profileSkills);
@@ -3749,6 +4070,7 @@ function EditProfileWorkspacePage() {
     try {
       await persistProfile({
         fullName: name,
+        username,
         country,
         university,
         course,
@@ -3959,6 +4281,25 @@ function EditProfileWorkspacePage() {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
+              </div>
+              <div className="field">
+                <label htmlFor="profile-username">Username</label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-3.5 font-semibold text-muted">@</span>
+                  <input
+                    className="input pl-8"
+                    id="profile-username"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    minLength={3}
+                    maxLength={30}
+                    pattern="[A-Za-z][A-Za-z0-9_]{2,29}"
+                    required
+                  />
+                </div>
+                <p className="field-hint">This is how other members find you.</p>
               </div>
               <div className="field">
                 <label htmlFor="profile-headline">
@@ -7927,7 +8268,9 @@ function MarketplaceConversationPage({ id }: { id: string }) {
               <div className="mt-6 rounded-xl border border-border p-5">
                 <p className="font-bold">Fund with Devnet USDC</p>
                 <p className="mt-2 text-sm leading-6 text-muted">
-                  The accepted amount moves from your embedded wallet into this gig’s custodial escrow wallet.
+                  {payment?.settlementMethod === "solana_program"
+                    ? "The accepted amount moves from your embedded wallet into a program-controlled PDA vault that only the contract rules can settle."
+                    : "The accepted amount moves from your embedded wallet into this gig’s custodial escrow wallet."}
                 </p>
                 <p className="mt-3 rounded-lg bg-primary-soft p-3 text-sm leading-6 text-secondary">
                   {feeSponsorshipAvailable ? (
@@ -9048,6 +9391,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     ["/admin/verifications", "Verification queue", UserCheck],
     ["/admin/gigs", "Gigs & payments", BriefcaseBusiness],
     ["/admin/disputes", "Disputes", AlertCircle],
+    ["/admin/security", "Account security", LockKeyhole],
   ] as const;
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950 lg:grid lg:grid-cols-[272px_1fr]">
@@ -9157,12 +9501,17 @@ type AdminOverviewMetrics = {
   registeredThisMonth: number;
   emailVerifiedUsers: number;
   verifiedUsers: number;
+  onboardedUsers: number;
   disabledUsers: number;
   pendingVerifications: number;
   openGigs: number;
   activeGigs: number;
   completedGigs: number;
   disputedGigs: number;
+  dailyRegistrations: Array<{
+    date: string;
+    count: number;
+  }>;
 };
 
 function AdminOverviewPage() {
@@ -9208,13 +9557,21 @@ function AdminOverviewPage() {
 
   const userMetrics = metrics
     ? ([
-        ["Total users", metrics.totalUsers, "All marketplace identities", UsersRound],
-        ["Registered today", metrics.registeredToday, "Since 00:00 UTC", UserCheck],
-        ["This week", metrics.registeredThisWeek, "Since Monday 00:00 UTC", BarChart3],
-        ["This month", metrics.registeredThisMonth, "Since the first day of the month", Clock3],
-        ["Verified students", metrics.verifiedUsers, "Approved student status", BadgeCheck],
+        ["Total members", metrics.totalUsers, "Marketplace accounts", UsersRound],
+        ["New today", metrics.registeredToday, "Since 00:00 UTC", UserCheck],
+        ["New this week", metrics.registeredThisWeek, "Since Monday", BarChart3],
+        ["Verified students", metrics.verifiedUsers, "Approved by operations", BadgeCheck],
       ] as const)
     : [];
+  const dailyMaximum = Math.max(
+    1,
+    ...(metrics?.dailyRegistrations ?? []).map((point) => point.count),
+  );
+  const percentage = (value: number, total: number) =>
+    total > 0 ? Math.round((value / total) * 100) : 0;
+  const marketplaceTotal = metrics
+    ? metrics.openGigs + metrics.activeGigs + metrics.completedGigs + metrics.disputedGigs
+    : 0;
 
   return (
     <RealAdminLayout>
@@ -9266,7 +9623,7 @@ function AdminOverviewPage() {
                 </p>
               )}
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {userMetrics.map(([label, value, detail, Icon]) => (
                 <article
                   key={label}
@@ -9284,72 +9641,142 @@ function AdminOverviewPage() {
               ))}
             </div>
           </section>
-          <section
-            className="mt-6 grid gap-6 xl:grid-cols-2"
-            aria-label="Operational health"
-          >
-            <article className="rounded-xl border border-slate-200 bg-white p-5">
+          <section className="mt-6 grid gap-6 xl:grid-cols-[1.45fr_1fr]" aria-label="Growth analytics">
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="font-bold">Trust and safety</h2>
+                  <h2 className="font-bold">Registration trend</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Identity and account controls requiring oversight.
+                    Daily marketplace accounts over the last 14 days.
+                  </p>
+                </div>
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  {metrics.registeredThisMonth.toLocaleString()} this month
+                </span>
+              </div>
+              <div
+                className="mt-8 grid h-52 grid-cols-[repeat(14,minmax(0,1fr))] items-end gap-1.5 border-b border-slate-200 sm:gap-2"
+                role="img"
+                aria-label={`Registration chart. ${metrics.dailyRegistrations
+                  .map((point) => `${point.date}: ${point.count}`)
+                  .join(", ")}`}
+              >
+                {metrics.dailyRegistrations.map((point, index) => (
+                  <div
+                    key={point.date}
+                    className="group flex h-full min-w-0 flex-col justify-end"
+                    title={`${point.date}: ${point.count.toLocaleString()} registrations`}
+                  >
+                    <span className="mb-1 text-center font-mono text-[10px] font-semibold text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      {point.count || ""}
+                    </span>
+                    <span
+                      className="min-h-1 rounded-t bg-emerald-700 transition-[height] duration-300 motion-reduce:transition-none"
+                      style={{ height: `${Math.max(3, (point.count / dailyMaximum) * 100)}%` }}
+                      aria-hidden="true"
+                    />
+                    <span className="mt-2 text-center text-[9px] text-slate-400">
+                      {index === 0 || index === 6 || index === 13
+                        ? new Date(`${point.date}T00:00:00Z`).toLocaleDateString("en", {
+                            month: "short",
+                            day: "numeric",
+                            timeZone: "UTC",
+                          })
+                        : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </article>
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-bold">Identity funnel</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Conversion from signup to trusted student.
                   </p>
                 </div>
                 <ShieldCheck className="size-6 text-emerald-700" aria-hidden="true" />
               </div>
-              <dl className="mt-5 divide-y divide-slate-200">
+              <div className="mt-6 space-y-5">
                 {[
-                  ["Email-verified users", metrics.emailVerifiedUsers],
-                  ["Pending student reviews", metrics.pendingVerifications],
-                  ["Suspended users", metrics.disabledUsers],
-                ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="flex min-h-12 items-center justify-between gap-4 py-2"
-                  >
-                    <dt className="text-sm text-slate-600">{label}</dt>
-                    <dd className="font-mono font-bold">
-                      {Number(value).toLocaleString()}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <Link
-                href="/admin/verifications"
-                className="btn btn-secondary mt-5 w-full bg-white"
-              >
-                Open verification queue
-              </Link>
+                  ["Registered", metrics.totalUsers],
+                  ["Email verified", metrics.emailVerifiedUsers],
+                  ["Profile complete", metrics.onboardedUsers],
+                  ["Student verified", metrics.verifiedUsers],
+                ].map(([label, value]) => {
+                  const rate = percentage(Number(value), metrics.totalUsers);
+                  return (
+                    <div key={label}>
+                      <div className="flex items-center justify-between gap-4 text-sm">
+                        <span className="font-medium text-slate-700">{label}</span>
+                        <span className="font-mono font-bold">
+                          {Number(value).toLocaleString()} <span className="text-xs text-slate-400">{rate}%</span>
+                        </span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-700"
+                          style={{ width: `${rate}%` }}
+                          aria-hidden="true"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </article>
-            <article className="rounded-xl border border-slate-200 bg-white p-5">
+          </section>
+          <section className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.45fr]" aria-label="Operational health">
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="font-bold">Marketplace health</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Current lifecycle distribution across real gigs.
-                  </p>
+                  <h2 className="font-bold">Operations queue</h2>
+                  <p className="mt-1 text-xs text-slate-500">Items that need administrator attention.</p>
+                </div>
+                <ShieldCheck className="size-6 text-emerald-700" aria-hidden="true" />
+              </div>
+              <div className="mt-5 grid gap-3">
+                {[
+                  ["Student reviews", metrics.pendingVerifications, "/admin/verifications", "amber"],
+                  ["Open disputes", metrics.disputedGigs, "/admin/disputes", "red"],
+                  ["Suspended users", metrics.disabledUsers, "/admin/users", "slate"],
+                ].map(([label, value, href, tone]) => (
+                  <Link key={String(label)} href={String(href)} className="flex min-h-14 items-center justify-between rounded-lg border border-slate-200 px-4 hover:border-emerald-300 hover:bg-emerald-50/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                    <span className="text-sm font-semibold text-slate-700">{label}</span>
+                    <span className={`rounded-full px-2.5 py-1 font-mono text-xs font-bold ${tone === "red" ? "bg-red-50 text-red-700" : tone === "amber" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700"}`}>
+                      {Number(value).toLocaleString()}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </article>
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-bold">Marketplace lifecycle</h2>
+                  <p className="mt-1 text-xs text-slate-500">Distribution across current gig states.</p>
                 </div>
                 <BriefcaseBusiness className="size-6 text-emerald-700" aria-hidden="true" />
               </div>
-              <dl className="mt-5 divide-y divide-slate-200">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 {[
-                  ["Open for applications", metrics.openGigs],
-                  ["Active contracts", metrics.activeGigs],
-                  ["Completed contracts", metrics.completedGigs],
-                  ["Disputed contracts", metrics.disputedGigs],
-                ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="flex min-h-12 items-center justify-between gap-4 py-2"
-                  >
-                    <dt className="text-sm text-slate-600">{label}</dt>
-                    <dd className="font-mono font-bold">
-                      {Number(value).toLocaleString()}
-                    </dd>
+                  ["Open", metrics.openGigs, "bg-blue-500"],
+                  ["Active", metrics.activeGigs, "bg-amber-500"],
+                  ["Completed", metrics.completedGigs, "bg-emerald-700"],
+                  ["Disputed", metrics.disputedGigs, "bg-red-600"],
+                ].map(([label, value, tone]) => (
+                  <div key={String(label)} className="rounded-lg bg-slate-50 p-4">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-600">{label}</p>
+                      <p className="font-mono text-xl font-bold">{Number(value).toLocaleString()}</p>
+                    </div>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${tone}`} style={{ width: `${percentage(Number(value), marketplaceTotal)}%` }} aria-hidden="true" />
+                    </div>
                   </div>
                 ))}
-              </dl>
+              </div>
             </article>
           </section>
         </>
@@ -9629,6 +10056,7 @@ function VerificationQueuePage() {
 
 type AdminUserRow = {
   uid: string;
+  username: string;
   fullName: string;
   email: string;
   university: string;
@@ -9821,6 +10249,7 @@ function AdminUserModal({
     detail && detail.verificationStatus !== "unsubmitted";
   const details = detail
     ? [
+        ["Username", detail.username ? `@${detail.username}` : "Not added"],
         ["Country", detail.country || "Not added"],
         ["University", detail.university || "Not added"],
         ["Course", detail.course || "Not added"],
@@ -9900,6 +10329,7 @@ function AdminUserModal({
                   <p className="mt-1 break-all text-sm text-slate-600">
                     {detail.email}
                   </p>
+                  {detail.username && <p className="mt-1 text-sm font-semibold text-emerald-800">@{detail.username}</p>}
                   <p className="mt-2 text-sm font-semibold text-slate-700">
                     {detail.headline || "No headline added"}
                   </p>
@@ -10303,7 +10733,7 @@ function AdminUsersPage() {
   }, [loadUsers]);
 
   const filteredUsers = users.filter((item) =>
-    `${item.fullName} ${item.email} ${item.university}`
+    `${item.fullName} ${item.username} ${item.email} ${item.university}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -10398,7 +10828,7 @@ function AdminUsersPage() {
                             {item.fullName}
                           </span>
                           <span className="mt-1 block text-xs text-slate-500">
-                            {item.email}
+                            {item.username ? `@${item.username} · ` : ""}{item.email}
                           </span>
                         </button>
                       </td>
@@ -11288,11 +11718,14 @@ function CampusGigRouter({ route }: RouteProps) {
   if (!path) page = <LandingPage />;
   else if (path === "signup") page = <SignupPage />;
   else if (path === "login") page = <LoginPage />;
+  else if (path === "forgot-password") page = <ForgotPasswordPage />;
   else if (path === "verify-email") page = <VerifyEmailPage />;
   else if (path === "admin/signup") page = <AdminSignupPage />;
   else if (path === "admin/login") page = <AdminLoginPage />;
+  else if (path === "admin/forgot-password") page = <ForgotPasswordPage admin />;
   else if (path === "admin/verify-email") page = <AdminVerifyEmailPage />;
   else if (path === "gigs") page = <JobFeedPage />;
+  else if (path === "people") page = <PeoplePage />;
   else if (route[0] === "gigs" && route[1] && route[2] === "conversation")
     page = <MarketplaceConversationPage id={route[1]} />;
   else if (route[0] === "gigs" && route[1])
@@ -11302,6 +11735,7 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (path === "profile") page = <ProfileWorkspacePage />;
   else if (path === "profile/edit") page = <EditProfileWorkspacePage />;
   else if (path === "profile/verification") page = <StudentVerificationPage />;
+  else if (path === "settings/security") page = <PasswordSecurityPage />;
   else if (path === "post") page = <PostGigLivePage />;
   else if (path === "my-gigs") page = <MyGigsLivePage />;
   else if (route[0] === "my-gigs" && route[1] && route[2] === "applicants")
@@ -11313,15 +11747,18 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (path === "admin/verifications") page = <RealVerificationQueuePage />;
   else if (path === "admin/gigs") page = <RealAdminGigsPage />;
   else if (path === "admin/disputes") page = <RealAdminDisputesPage />;
+  else if (path === "admin/security") page = <PasswordSecurityPage admin />;
   else page = <PlaceholderPage route={route} />;
 
   const protectedPath =
     [
       "applications",
       "notifications",
+      "people",
       "profile",
       "profile/edit",
       "profile/verification",
+      "settings/security",
       "post",
       "my-gigs",
       "escrow",
@@ -11335,6 +11772,7 @@ function CampusGigRouter({ route }: RouteProps) {
     "admin/verifications",
     "admin/gigs",
     "admin/disputes",
+    "admin/security",
   ].includes(path);
   if (protectedAdminPath)
     return <AdminProtectedRoute>{page}</AdminProtectedRoute>;

@@ -24,9 +24,18 @@ export async function GET(request: Request) {
       })),
     );
 
-    const [verifiedUsers, pendingVerifications, openGigs, activeGigs, completedGigs, disputedGigs] =
+    const [
+      verifiedUsers,
+      onboardedUsers,
+      pendingVerifications,
+      openGigs,
+      activeGigs,
+      completedGigs,
+      disputedGigs,
+    ] =
       await Promise.all([
         countQuery(adminDb.collection("users").where("studentVerified", "==", true)),
+        countQuery(adminDb.collection("users").where("onboardingComplete", "==", true)),
         countQuery(
           adminDb.collection("studentVerificationRequests").where("status", "==", "pending"),
         ),
@@ -46,6 +55,7 @@ export async function GET(request: Request) {
       metrics: {
         ...registration,
         verifiedUsers,
+        onboardedUsers,
         pendingVerifications,
         openGigs,
         activeGigs,

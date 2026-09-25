@@ -36,8 +36,8 @@ export function usdcToBaseUnits(value: unknown) {
 
 export function configuredPlatformFeeBps() {
   const configured = Number(process.env.CAMPUSGIG_PLATFORM_FEE_BPS ?? "500");
-  if (!Number.isSafeInteger(configured) || configured < 0 || configured > 10_000) {
-    throw new Error("CAMPUSGIG_PLATFORM_FEE_BPS must be a whole number from 0 to 10000.");
+  if (!Number.isSafeInteger(configured) || configured < 0 || configured > 2_500) {
+    throw new Error("CAMPUSGIG_PLATFORM_FEE_BPS must be a whole number from 0 to 2500.");
   }
   return BigInt(configured);
 }
@@ -45,8 +45,7 @@ export function configuredPlatformFeeBps() {
 export function paymentAmounts(amount: unknown) {
   const amountBaseUnits = usdcToBaseUnits(amount);
   const feeBps = configuredPlatformFeeBps();
-  const platformFeeBaseUnits =
-    (amountBaseUnits * feeBps + BigInt(9_999)) / BigInt(10_000);
+  const platformFeeBaseUnits = (amountBaseUnits * feeBps) / BigInt(10_000);
   const studentAmountBaseUnits = amountBaseUnits - platformFeeBaseUnits;
   if (studentAmountBaseUnits <= BigInt(0)) {
     throw new ApiAuthError("The agreed amount is too small after the platform fee.", 409);
@@ -84,7 +83,11 @@ export function paymentValue(data: Record<string, unknown>): MarketplacePayment 
     clientId: String(data.clientId ?? ""),
     studentId: String(data.studentId ?? ""),
     settlementMethod:
-      data.settlementMethod === "solana_custodial" ? "solana_custodial" : "local",
+      data.settlementMethod === "solana_program"
+        ? "solana_program"
+        : data.settlementMethod === "solana_custodial"
+          ? "solana_custodial"
+          : "local",
     currency: String(data.currency ?? ""),
     amountBaseUnits: String(data.amountBaseUnits ?? "0"),
     platformFeeBaseUnits: String(data.platformFeeBaseUnits ?? "0"),

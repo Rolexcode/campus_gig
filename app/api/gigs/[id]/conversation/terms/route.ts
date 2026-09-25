@@ -51,9 +51,11 @@ export async function POST(
     const deadline = String(body.deadline ?? "").trim();
     const amount = Number(body.amount);
     const revisions = Number(body.revisions);
+    const deadlineTime = new Date(`${deadline}T23:59:59.999Z`).getTime();
     if (
       !/^\d{4}-\d{2}-\d{2}$/.test(deadline) ||
-      Number.isNaN(new Date(`${deadline}T23:59:59.999Z`).getTime())
+      Number.isNaN(deadlineTime) ||
+      deadlineTime <= Date.now()
     )
       throw new ApiAuthError("Choose a valid deadline.", 400);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000_000)
@@ -72,6 +74,9 @@ export async function POST(
         403,
       );
     const currency = String(access.gig.currency ?? "");
+    if (currency === "USDC" && deadlineTime > Date.now() + 365 * 24 * 60 * 60 * 1000) {
+      throw new ApiAuthError("USDC escrow deadlines must be within one year.", 400);
+    }
     if (currency !== "USDC" && !Number.isSafeInteger(amount))
       throw new ApiAuthError(
         "Use a whole-number amount for local currency.",

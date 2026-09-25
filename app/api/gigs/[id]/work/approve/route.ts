@@ -10,6 +10,10 @@ import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
 import { assertPaymentsActive } from "@/app/lib/payment-controls";
 import { paymentValue, usdcDisplayAmount } from "@/app/lib/payments";
 import { releaseAllocation } from "@/app/lib/release-allocation";
+import {
+  buildProgramReleaseTransaction,
+  getProgramEscrow,
+} from "@/app/lib/program-escrow";
 import { enforceServerRateLimit } from "@/app/lib/server-rate-limit";
 import {
   broadcastReleaseTransaction,
@@ -57,6 +61,30 @@ async function finalizeRelease({
   const submissionReference = adminDb.collection("gigSubmissions").doc(gigId);
   const reviewReference = adminDb.collection("gigReviews").doc(gigId);
   const feeReference = adminDb.collection("platformFeeCollections").doc(gigId);
+
+  const initialPaymentSnapshot = await paymentReference.get();
+  const initialPayment = initialPaymentSnapshot.data() ?? {};
+  if (String(initialPayment.settlementMethod ?? "") === "solana_program") {
+    const onChain = await getProgramEscrow(gigId);
+    if (
+      !onChain ||
+      onChain.account.status !== "released" ||
+      onChain.account.amountBaseUnits.toString() !== String(initialPayment.amountBaseUnits ?? "") ||
+      onChain.account.feeBps !== Number(initialPayment.platformFeeBps ?? -1) ||
+      onChain.account.clientAddress !== String(initialPayment.clientWalletAddress ?? "") ||
+      onChain.account.workerAddress !== String(initialPayment.studentWalletAddress ?? "") ||
+      onChain.account.workerAmountBaseUnits.toString() !==
+        String(initialPayment.studentAmountBaseUnits ?? "") ||
+      onChain.account.platformFeeBaseUnits.toString() !==
+        String(initialPayment.platformFeeBaseUnits ?? "") ||
+      onChain.account.clientRefundBaseUnits !== 0n
+    ) {
+      throw new ApiAuthError(
+        "The confirmed transaction does not match the expected on-chain release.",
+        409,
+      );
+    }
+  }
 
   await adminDb.runTransaction(async (transaction) => {
     const [gigSnapshot, paymentSnapshot, submissionSnapshot] = await Promise.all([
@@ -198,14 +226,22 @@ export async function POST(
     const paymentReference = adminDb.collection("gigPayments").doc(id);
     const submissionReference = adminDb.collection("gigSubmissions").doc(id);
     const escrowKeyReference = adminDb.collection("paymentWalletKeys").doc(id);
+    const clientKeyReference = adminDb.collection("walletKeys").doc(decoded.uid);
     const operationId = randomUUID();
     const reservation = await adminDb.runTransaction(async (transaction) => {
-      const [gigSnapshot, paymentSnapshot, submissionSnapshot, escrowKeySnapshot] =
+      const [
+        gigSnapshot,
+        paymentSnapshot,
+        submissionSnapshot,
+        escrowKeySnapshot,
+        clientKeySnapshot,
+      ] =
         await Promise.all([
           transaction.get(access.gigReference),
           transaction.get(paymentReference),
           transaction.get(submissionReference),
           transaction.get(escrowKeyReference),
+          transaction.get(clientKeyReference),
         ]);
       if (!gigSnapshot.exists || !paymentSnapshot.exists || !submissionSnapshot.exists) {
         throw new ApiAuthError("The submitted work or payment could not be found.", 404);
@@ -235,8 +271,12 @@ export async function POST(
       ) {
         throw new ApiAuthError("The student must submit work before payment can be released.", 409);
       }
-      if (!escrowKeySnapshot.exists) {
+      const useProgramEscrow = String(payment.settlementMethod ?? "") === "solana_program";
+      if (!useProgramEscrow && !escrowKeySnapshot.exists) {
         throw new ApiAuthError("The gig escrow signer could not be found.", 409);
+      }
+      if (useProgramEscrow && !clientKeySnapshot.exists) {
+        throw new ApiAuthError("The client wallet signer could not be found.", 409);
       }
       const studentId = String(payment.studentId ?? "");
       const studentKeyReference = adminDb.collection("walletKeys").doc(studentId);
@@ -265,7 +305,10 @@ export async function POST(
       return {
         kind: "prepare" as const,
         operationId,
-        escrowKey: escrowKeySnapshot.data() ?? {},
+        useProgramEscrow,
+        signerKey: useProgramEscrow
+          ? (clientKeySnapshot.data() ?? {})
+          : (escrowKeySnapshot.data() ?? {}),
         studentAddress: String(studentKeySnapshot.data()?.publicKey ?? ""),
         studentAmountBaseUnits: allocation.studentAmountBaseUnits.toString(),
         platformFeeBaseUnits: allocation.platformFeeBaseUnits.toString(),
@@ -306,13 +349,18 @@ export async function POST(
 
     if (reservation.kind === "prepare") {
       try {
-        const escrowOwner = decryptEmbeddedWallet(reservation.escrowKey);
-        const signed = await buildSignedUsdcReleaseTransaction({
-          escrowOwner,
-          studentAddress: reservation.studentAddress,
-          studentAmountBaseUnits: BigInt(reservation.studentAmountBaseUnits),
-          platformFeeBaseUnits: BigInt(reservation.platformFeeBaseUnits),
-        });
+        const signer = decryptEmbeddedWallet(
+          reservation.signerKey,
+          reservation.useProgramEscrow ? `user:${decoded.uid}` : `gig:${id}`,
+        );
+        const signed = reservation.useProgramEscrow
+          ? await buildProgramReleaseTransaction({ gigId: id, client: signer })
+          : await buildSignedUsdcReleaseTransaction({
+              escrowOwner: signer,
+              studentAddress: reservation.studentAddress,
+              studentAmountBaseUnits: BigInt(reservation.studentAmountBaseUnits),
+              platformFeeBaseUnits: BigInt(reservation.platformFeeBaseUnits),
+            });
         signedTransaction = signed.signedTransaction;
         blockhash = signed.blockhash;
         lastValidBlockHeight = signed.lastValidBlockHeight;

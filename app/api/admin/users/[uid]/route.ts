@@ -32,6 +32,7 @@ export async function GET(request: Request, context: { params: Promise<{ uid: st
     return Response.json({
       user: {
         uid,
+        username: String(data.username ?? ""),
         fullName: String(data.fullName ?? authUser.displayName ?? "CampusGig member"),
         email: String(data.email ?? authUser.email ?? ""),
         emailVerified: authUser.emailVerified,

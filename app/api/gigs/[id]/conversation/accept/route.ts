@@ -11,6 +11,10 @@ import { writeUserNotification } from "@/app/lib/user-notifications";
 import { createEmbeddedWallet } from "@/app/lib/embedded-wallet";
 import { paymentAmounts } from "@/app/lib/payments";
 import {
+  programEscrowAddresses,
+  programEscrowModeEnabled,
+} from "@/app/lib/program-escrow";
+import {
   ApiAuthError,
   apiErrorResponse,
   requireMarketplaceUser,
@@ -36,7 +40,7 @@ export async function POST(
 
     const paymentReference = adminDb.collection("gigPayments").doc(id);
     const escrowKeyReference = adminDb.collection("paymentWalletKeys").doc(id);
-    const escrowCandidate = createEmbeddedWallet();
+    const escrowCandidate = createEmbeddedWallet(`gig:${id}`);
 
     await adminDb.runTransaction(async (transaction) => {
       const [gigSnapshot, conversationSnapshot, paymentSnapshot, escrowKeySnapshot] =
@@ -59,8 +63,14 @@ export async function POST(
       assertGigTransition(currentStatus, "awaiting_funding");
       const agreement = (data.agreement ?? {}) as Record<string, unknown>;
       const currency = String(agreement.currency ?? "");
+      const useProgramEscrow = currency === "USDC" && programEscrowModeEnabled();
       const settlementMethod =
-        currency === "USDC" ? "solana_custodial" : "local";
+        currency === "USDC"
+          ? useProgramEscrow
+            ? "solana_program"
+            : "solana_custodial"
+          : "local";
+      const programAddresses = useProgramEscrow ? programEscrowAddresses(id) : null;
       const amounts =
         currency === "USDC"
           ? paymentAmounts(agreement.amount)
@@ -103,13 +113,18 @@ export async function POST(
           ...amounts,
           agreementVersion: version,
           escrowOwnerAddress:
-            currency === "USDC"
+            useProgramEscrow
+              ? programAddresses!.escrow.toBase58()
+              : currency === "USDC"
               ? String(
                   escrowKeySnapshot.data()?.publicKey ??
                     escrowCandidate.publicKey,
                 )
               : "",
-          escrowAddress: "",
+          escrowAddress: useProgramEscrow ? programAddresses!.escrow.toBase58() : "",
+          vaultAddress: useProgramEscrow ? programAddresses!.vault.toBase58() : "",
+          programId: useProgramEscrow ? programAddresses!.programId.toBase58() : "",
+          configAddress: useProgramEscrow ? programAddresses!.config.toBase58() : "",
           feePayerAddress: "",
           feesSponsored: false,
           fundingSignature: "",
@@ -122,7 +137,7 @@ export async function POST(
         },
         { merge: true },
       );
-      if (currency === "USDC" && !escrowKeySnapshot.exists) {
+      if (currency === "USDC" && !useProgramEscrow && !escrowKeySnapshot.exists) {
         transaction.create(escrowKeyReference, {
           gigId: id,
           ...escrowCandidate,

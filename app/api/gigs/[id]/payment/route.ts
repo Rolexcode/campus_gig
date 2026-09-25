@@ -6,7 +6,19 @@ import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
 import { writeGigEvent } from "@/app/lib/gig-audit";
 import { writeUserNotification } from "@/app/lib/user-notifications";
 import { cleanConversationId, requireConversationAccess } from "@/app/lib/conversations";
-import { paymentAmounts, paymentValue, usdcDisplayAmount } from "@/app/lib/payments";
+import {
+  configuredPlatformFeeBps,
+  paymentAmounts,
+  paymentValue,
+  usdcDisplayAmount,
+} from "@/app/lib/payments";
+import { agreementDigest } from "@/app/lib/program-escrow-codec";
+import {
+  buildProgramFundingTransaction,
+  getProgramEscrow,
+  programEscrowAddresses,
+  programEscrowModeEnabled,
+} from "@/app/lib/program-escrow";
 import { assertPaymentsActive } from "@/app/lib/payment-controls";
 import { enforceServerRateLimit } from "@/app/lib/server-rate-limit";
 import {
@@ -44,6 +56,26 @@ async function markFunded(
 ) {
   const paymentReference = adminDb.collection("gigPayments").doc(gigId);
   const gigReference = adminDb.collection("gigs").doc(gigId);
+  const initialPaymentSnapshot = await paymentReference.get();
+  const initialPayment = initialPaymentSnapshot.data() ?? {};
+  if (String(initialPayment.settlementMethod ?? "") === "solana_program") {
+    const onChain = await getProgramEscrow(gigId);
+    const expectedAgreementHash = String(initialPayment.agreementHash ?? "");
+    if (
+      !onChain ||
+      onChain.account.status !== "funded" ||
+      onChain.account.amountBaseUnits.toString() !== String(initialPayment.amountBaseUnits ?? "") ||
+      onChain.account.feeBps !== Number(initialPayment.platformFeeBps ?? -1) ||
+      onChain.account.clientAddress !== String(initialPayment.clientWalletAddress ?? "") ||
+      onChain.account.workerAddress !== String(initialPayment.studentWalletAddress ?? "") ||
+      (expectedAgreementHash && onChain.account.agreementHash.toString("hex") !== expectedAgreementHash)
+    ) {
+      throw new ApiAuthError(
+        "The confirmed transaction does not match the expected on-chain escrow state.",
+        409,
+      );
+    }
+  }
   await adminDb.runTransaction(async (transaction) => {
     const [paymentSnapshot, gigSnapshot] = await Promise.all([
       transaction.get(paymentReference),
@@ -201,7 +233,8 @@ export async function POST(
     const escrowKeyReference = adminDb.collection("paymentWalletKeys").doc(id);
     const clientKeyReference = adminDb.collection("walletKeys").doc(decoded.uid);
     const operationId = randomUUID();
-    const escrowCandidate = createEmbeddedWallet();
+    const useProgramEscrow = programEscrowModeEnabled();
+    const escrowCandidate = createEmbeddedWallet(`gig:${id}`);
 
     const reservation = await adminDb.runTransaction(async (transaction) => {
       const [gigSnapshot, conversationSnapshot, paymentSnapshot, escrowKeySnapshot, clientKeySnapshot] =
@@ -249,6 +282,13 @@ export async function POST(
         return { kind: "funded" as const };
       }
       if (existingStatus === "funding_pending") {
+        const expectedMethod = useProgramEscrow ? "solana_program" : "solana_custodial";
+        if (String(existing.settlementMethod ?? "") !== expectedMethod) {
+          throw new ApiAuthError(
+            "The settlement mode changed during funding. Reset this payment before retrying.",
+            409,
+          );
+        }
         const signedTransaction = String(existing.signedTransaction ?? "");
         if (!signedTransaction) {
           throw new ApiAuthError("Funding is already being prepared. Wait a moment and refresh.", 409);
@@ -268,21 +308,37 @@ export async function POST(
       assertGigTransition(currentStatus, "in_progress");
 
       const amounts = paymentAmounts(agreement.amount);
-      const escrowOwnerAddress = String(
-        escrowKeySnapshot.data()?.publicKey ?? escrowCandidate.publicKey,
-      );
+      const platformFeeBps = Number(configuredPlatformFeeBps());
+      const studentId = String(gig.selectedApplicantId ?? "");
+      const studentKeySnapshot = useProgramEscrow
+        ? await transaction.get(adminDb.collection("walletKeys").doc(studentId))
+        : null;
+      if (
+        useProgramEscrow &&
+        (!studentKeySnapshot?.exists || !String(studentKeySnapshot.data()?.publicKey ?? ""))
+      ) {
+        throw new ApiAuthError("The selected student's payout wallet could not be found.", 409);
+      }
+      const programAddresses = useProgramEscrow ? programEscrowAddresses(id) : null;
+      const escrowOwnerAddress = useProgramEscrow
+        ? programAddresses!.escrow.toBase58()
+        : String(escrowKeySnapshot.data()?.publicKey ?? escrowCandidate.publicKey);
       transaction.set(
         paymentReference,
         {
           gigId: id,
           clientId: decoded.uid,
-          studentId: String(gig.selectedApplicantId ?? ""),
-          settlementMethod: "solana_custodial",
+          studentId,
+          settlementMethod: useProgramEscrow ? "solana_program" : "solana_custodial",
           currency: "USDC",
           ...amounts,
+          platformFeeBps,
           agreementVersion,
           escrowOwnerAddress,
-          escrowAddress: "",
+          escrowAddress: useProgramEscrow ? programAddresses!.escrow.toBase58() : "",
+          vaultAddress: useProgramEscrow ? programAddresses!.vault.toBase58() : "",
+          programId: useProgramEscrow ? programAddresses!.programId.toBase58() : "",
+          configAddress: useProgramEscrow ? programAddresses!.config.toBase58() : "",
           fundingSignature: "",
           releaseSignature: "",
           signedTransaction: "",
@@ -296,7 +352,7 @@ export async function POST(
         },
         { merge: true },
       );
-      if (!escrowKeySnapshot.exists) {
+      if (!useProgramEscrow && !escrowKeySnapshot.exists) {
         transaction.create(escrowKeyReference, {
           gigId: id,
           ...escrowCandidate,
@@ -320,9 +376,20 @@ export async function POST(
       return {
         kind: "prepare" as const,
         operationId,
+        useProgramEscrow,
         escrowOwnerAddress,
         amountBaseUnits: amounts.amountBaseUnits,
         clientKey: clientKeySnapshot.data() ?? {},
+        workerAddress: String(studentKeySnapshot?.data()?.publicKey ?? ""),
+        studentId,
+        agreementVersion,
+        agreement: {
+          scope: String(agreement.scope ?? ""),
+          deliverables: String(agreement.deliverables ?? ""),
+          deadline: String(agreement.deadline ?? ""),
+          currency: String(agreement.currency ?? ""),
+          revisions: Number(agreement.revisions ?? 0),
+        },
       };
     });
 
@@ -340,12 +407,39 @@ export async function POST(
 
     if (reservation.kind === "prepare") {
       try {
-        const client = decryptEmbeddedWallet(reservation.clientKey);
-        const signed = await buildSignedUsdcFundingTransaction({
-          client,
-          escrowOwnerAddress: reservation.escrowOwnerAddress,
-          amountBaseUnits: BigInt(reservation.amountBaseUnits),
+        const client = decryptEmbeddedWallet(reservation.clientKey, `user:${decoded.uid}`);
+        const agreementHash = agreementDigest({
+          gigId: id,
+          agreementVersion: reservation.agreementVersion,
+          clientId: decoded.uid,
+          workerId: reservation.studentId,
+          scope: reservation.agreement.scope,
+          deliverables: reservation.agreement.deliverables,
+          deadline: reservation.agreement.deadline,
+          amountBaseUnits: reservation.amountBaseUnits,
+          currency: reservation.agreement.currency,
+          revisions: reservation.agreement.revisions,
         });
+        const deadlineUnixSeconds = BigInt(
+          Math.floor(
+            new Date(`${reservation.agreement.deadline}T23:59:59.999Z`).getTime() / 1000,
+          ),
+        );
+        const signed = reservation.useProgramEscrow
+          ? await buildProgramFundingTransaction({
+              gigId: id,
+              client,
+              workerAddress: reservation.workerAddress,
+              agreementHash,
+              amountBaseUnits: BigInt(reservation.amountBaseUnits),
+              feeBps: Number(configuredPlatformFeeBps()),
+              deadlineUnixSeconds,
+            })
+          : await buildSignedUsdcFundingTransaction({
+              client,
+              escrowOwnerAddress: reservation.escrowOwnerAddress,
+              amountBaseUnits: BigInt(reservation.amountBaseUnits),
+            });
         signedTransaction = signed.signedTransaction;
         blockhash = signed.blockhash;
         lastValidBlockHeight = signed.lastValidBlockHeight;
@@ -367,6 +461,16 @@ export async function POST(
             availableBeforeFundingBaseUnits: signed.availableBaseUnits,
             feePayerAddress: signed.feePayerAddress,
             feesSponsored: signed.feesSponsored,
+            vaultAddress: "vaultAddress" in signed ? signed.vaultAddress : "",
+            programId: "programId" in signed ? signed.programId : "",
+            configAddress: "configAddress" in signed ? signed.configAddress : "",
+            agreementHash: reservation.useProgramEscrow ? agreementHash.toString("hex") : "",
+            clientWalletAddress: reservation.useProgramEscrow
+              ? client.publicKey.toBase58()
+              : "",
+            studentWalletAddress: reservation.useProgramEscrow
+              ? reservation.workerAddress
+              : "",
             updatedAt: FieldValue.serverTimestamp(),
           });
         });

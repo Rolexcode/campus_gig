@@ -100,7 +100,7 @@ export type MarketplacePayment = {
   gigId: string;
   clientId: string;
   studentId: string;
-  settlementMethod: "solana_custodial" | "local";
+  settlementMethod: "solana_program" | "solana_custodial" | "local";
   currency: string;
   amountBaseUnits: string;
   platformFeeBaseUnits: string;

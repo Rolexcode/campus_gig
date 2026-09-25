@@ -8,6 +8,14 @@ import {
   requireAdmin,
 } from "@/app/lib/server-auth";
 import { writeUserNotification } from "@/app/lib/user-notifications";
+import {
+  buildProgramResumeTransaction,
+  getProgramEscrow,
+} from "@/app/lib/program-escrow";
+import {
+  broadcastFundingTransaction,
+  confirmFundingTransaction,
+} from "@/app/lib/solana-payments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,6 +98,25 @@ export async function PATCH(request: Request) {
     const disputeReference = adminDb.collection("gigDisputes").doc(gigId);
     const gigReference = adminDb.collection("gigs").doc(gigId);
     const paymentReference = adminDb.collection("gigPayments").doc(gigId);
+    const initialPaymentSnapshot = await paymentReference.get();
+    let resumeSignature = "";
+    if (String(initialPaymentSnapshot.data()?.settlementMethod ?? "") === "solana_program") {
+      let onChain = await getProgramEscrow(gigId);
+      if (!onChain) throw new ApiAuthError("The on-chain escrow could not be found.", 409);
+      if (onChain.account.status === "disputed") {
+        const signed = await buildProgramResumeTransaction(gigId);
+        resumeSignature = await broadcastFundingTransaction(signed.signedTransaction);
+        await confirmFundingTransaction({
+          signature: resumeSignature,
+          blockhash: signed.blockhash,
+          lastValidBlockHeight: signed.lastValidBlockHeight,
+        });
+        onChain = await getProgramEscrow(gigId);
+      }
+      if (!onChain || onChain.account.status !== "funded") {
+        throw new ApiAuthError("The on-chain payment freeze could not be resumed.", 409);
+      }
+    }
     await adminDb.runTransaction(async (transaction) => {
       const [disputeSnapshot, gigSnapshot, paymentSnapshot] = await Promise.all([
         transaction.get(disputeReference),
@@ -124,6 +151,7 @@ export async function PATCH(request: Request) {
         resolution: "resumed",
         resolutionNote,
         resolvedBy: admin.email ?? admin.uid,
+        resumeSignature,
         resolvedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });

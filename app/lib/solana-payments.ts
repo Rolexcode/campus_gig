@@ -6,6 +6,7 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
+  TokenAccountNotFoundError,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -36,7 +37,7 @@ export function solanaExplorerTransactionUrl(signature: string) {
   return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}?cluster=devnet`;
 }
 
-function configuredFeePayer() {
+export function configuredFeePayer() {
   const encoded = process.env.SOLANA_FEE_PAYER_SECRET_KEY_BASE64?.trim();
   if (!encoded) return null;
   const secret = Buffer.from(encoded, "base64");
@@ -48,7 +49,7 @@ function configuredFeePayer() {
   return Keypair.fromSecretKey(new Uint8Array(secret));
 }
 
-function configuredPlatformFeeAddress() {
+export function configuredPlatformFeeAddress() {
   const address = process.env.CAMPUSGIG_FEE_WALLET_ADDRESS?.trim();
   if (!address) {
     throw new Error(
@@ -69,7 +70,8 @@ export async function getUsdcBalance(ownerAddress: string) {
   try {
     const account = await getAccount(connection, tokenAddress, "confirmed", TOKEN_PROGRAM_ID);
     return account.amount;
-  } catch {
+  } catch (error) {
+    if (!(error instanceof TokenAccountNotFoundError)) throw error;
     return BigInt(0);
   }
 }

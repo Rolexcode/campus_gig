@@ -6,64 +6,12 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    function validNewProfile(userId) {
-      return request.resource.data.keys().hasAll([
-          'uid',
-          'email',
-          'fullName',
-          'emailVerified',
-          'studentVerified',
-          'verificationStatus',
-          'onboardingComplete',
-          'createdAt',
-          'updatedAt'
-        ])
-        && request.resource.data.keys().hasOnly([
-          'uid',
-          'email',
-          'fullName',
-          'emailVerified',
-          'studentVerified',
-          'verificationStatus',
-          'onboardingComplete',
-          'createdAt',
-          'updatedAt'
-        ])
-        && request.resource.data.uid == userId
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.fullName is string
-        && request.resource.data.emailVerified == false
-        && request.resource.data.studentVerified == false
-        && request.resource.data.verificationStatus == 'unsubmitted'
-        && request.resource.data.onboardingComplete == false;
-    }
-
-    function updatesOnlyEditableProfileFields() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'fullName',
-        'country',
-        'university',
-        'course',
-        'headline',
-        'bio',
-        'skills',
-        'portfolio',
-        'linkedIn',
-        'gitHub',
-        'availability',
-        'photoName',
-        'photoDataUrl',
-        'onboardingComplete',
-        'updatedAt'
-      ]);
-    }
-
     match /users/{userId} {
       allow get: if ownsProfile(userId);
       allow list: if false;
-      allow create: if ownsProfile(userId) && validNewProfile(userId);
-      allow update: if ownsProfile(userId) && updatesOnlyEditableProfileFields();
-      allow delete: if false;
+      // All profile writes are server-side so username reservations and
+      // validation remain atomic and cannot be bypassed by a browser client.
+      allow create, update, delete: if false;
     }
 
     // Marketplace data is accessed through authenticated server routes. The

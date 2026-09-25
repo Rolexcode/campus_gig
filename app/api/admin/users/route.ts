@@ -16,6 +16,7 @@ export async function GET(request: Request) {
       const data = profiles.get(authUser.uid) ?? {};
       return {
         uid: authUser.uid,
+        username: String(data.username ?? ""),
         fullName: String(data.fullName ?? authUser.displayName ?? "CampusGig member"),
         email: String(data.email ?? authUser.email ?? ""),
         university: String(data.university ?? "Not added"),

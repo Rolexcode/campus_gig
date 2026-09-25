@@ -14,13 +14,18 @@ describe("calculateRegistrationMetrics", () => {
       now,
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       totalUsers: 4,
       registeredToday: 1,
       registeredThisWeek: 2,
       registeredThisMonth: 3,
       emailVerifiedUsers: 2,
       disabledUsers: 1,
+    });
+    expect(result.dailyRegistrations).toHaveLength(14);
+    expect(result.dailyRegistrations.at(-1)).toEqual({
+      date: "2026-08-30",
+      count: 1,
     });
   });
 
@@ -38,5 +43,6 @@ describe("calculateRegistrationMetrics", () => {
     expect(result.registeredToday).toBe(0);
     expect(result.registeredThisWeek).toBe(0);
     expect(result.registeredThisMonth).toBe(0);
+    expect(result.dailyRegistrations.every((point) => point.count === 0)).toBe(true);
   });
 });

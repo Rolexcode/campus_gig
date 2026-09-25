@@ -12,19 +12,21 @@ import {
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  EmailAuthProvider,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   reload,
+  sendPasswordResetEmail,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updatePassword,
   updateProfile as updateFirebaseProfile,
   User,
 } from "firebase/auth";
 import {
   doc,
   getDoc,
-  serverTimestamp,
-  setDoc,
 } from "firebase/firestore";
 import { FirebaseError } from "firebase/app";
 import {
@@ -38,6 +40,7 @@ export type UserProfile = {
   uid: string;
   email: string;
   fullName: string;
+  username: string;
   emailVerified: boolean;
   studentVerified: boolean;
   verificationStatus: VerificationStatus;
@@ -67,6 +70,7 @@ export type UserProfile = {
 export type EditableProfile = Pick<
   UserProfile,
   | "fullName"
+  | "username"
   | "country"
   | "university"
   | "course"
@@ -87,7 +91,7 @@ type AuthContextValue = {
   isAdmin: boolean;
   loading: boolean;
   configurationError: string | null;
-  signUp: (fullName: string, email: string, password: string) => Promise<User>;
+  signUp: (fullName: string, username: string, email: string, password: string) => Promise<User>;
   signUpAdmin: (fullName: string, email: string, password: string) => Promise<User>;
   logIn: (email: string, password: string) => Promise<{ user: User; isAdmin: boolean }>;
   logOut: () => Promise<void>;
@@ -95,6 +99,8 @@ type AuthContextValue = {
   refreshProfile: () => Promise<void>;
   refreshSession: () => Promise<void>;
   sendAccountVerificationEmail: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -104,6 +110,7 @@ function profileFromData(data: Record<string, unknown>): UserProfile {
     uid: String(data.uid ?? ""),
     email: String(data.email ?? ""),
     fullName: String(data.fullName ?? ""),
+    username: String(data.username ?? ""),
     emailVerified: data.emailVerified === true,
     studentVerified: data.studentVerified === true,
     verificationStatus: (data.verificationStatus as VerificationStatus) ?? "unsubmitted",
@@ -141,10 +148,15 @@ export function firebaseErrorMessage(error: unknown) {
   const messages: Record<string, string> = {
     "auth/email-already-in-use": "An account already exists for that email. Try logging in instead.",
     "auth/invalid-credential": "That email or password is incorrect.",
+    "auth/user-disabled": "This account has been suspended. Contact CampusGig support.",
     "auth/invalid-email": "Enter a valid email address.",
     "auth/missing-password": "Enter your password.",
     "auth/network-request-failed": "We could not reach Firebase. Check your connection and try again.",
     "auth/too-many-requests": "Too many attempts. Wait a moment and try again.",
+    "auth/requires-recent-login": "For your security, log in again before changing your password.",
+    "auth/wrong-password": "Your current password is incorrect.",
+    "auth/password-does-not-meet-requirements": "Choose a stronger password with at least 8 characters.",
+    "auth/operation-not-allowed": "Password sign-in is not enabled for this project.",
     "auth/weak-password": "Choose a stronger password with at least 8 characters.",
     "permission-denied": "Your profile could not be saved because access was denied.",
   };
@@ -219,8 +231,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsAdmin(nextIsAdmin);
             if (nextIsAdmin) setProfile(null);
             else await loadProfile(nextUser);
+            setConfigurationError(null);
           } catch (error) {
-            setConfigurationError(firebaseErrorMessage(error));
+            const message = error instanceof Error ? error.message : "";
+            if (nextUser && message.includes("session is invalid or expired")) {
+              await firebaseSignOut(auth);
+              setUser(null);
+              setProfile(null);
+              setIsAdmin(false);
+              setConfigurationError(null);
+            } else {
+              setConfigurationError(firebaseErrorMessage(error));
+            }
           } finally {
             if (active) setLoading(false);
           }
@@ -239,8 +261,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadAdminStatus, loadProfile]);
 
-  const signUp = useCallback(async (fullName: string, email: string, password: string) => {
-    const { auth, db } = await getFirebaseServices();
+  const signUp = useCallback(async (fullName: string, username: string, email: string, password: string) => {
+    const { auth } = await getFirebaseServices();
     const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
     await updateFirebaseProfile(credential.user, { displayName: fullName.trim() });
 
@@ -254,6 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       uid: credential.user.uid,
       email: credential.user.email ?? email.trim(),
       fullName: fullName.trim(),
+      username: username.trim().toLowerCase(),
       emailVerified: false,
       studentVerified: false,
       verificationStatus: "unsubmitted",
@@ -261,12 +284,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     try {
-      await setDoc(doc(db, "users", credential.user.uid), {
-        ...nextProfile,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
       const token = await credential.user.getIdToken();
+      const registrationResponse = await fetch("/api/auth/register-profile", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, username }),
+      });
+      const registrationPayload = await registrationResponse.json().catch(() => ({}));
+      if (!registrationResponse.ok) {
+        throw new Error(String(registrationPayload.error ?? "Your account profile could not be created."));
+      }
       const response = await fetch("/api/wallet", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -393,6 +420,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await sendEmailVerification(user);
   }, [user]);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const { auth } = await getFirebaseServices();
+    try {
+      await sendPasswordResetEmail(auth, email.trim(), {
+        url: `${window.location.origin}/login`,
+      });
+    } catch (error) {
+      // Keep account discovery private when Email Enumeration Protection is
+      // unavailable or disabled in an older Firebase project.
+      if (error instanceof FirebaseError && error.code === "auth/user-not-found") return;
+      throw error;
+    }
+  }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    if (!user?.email) throw new Error("Log in before changing your password.");
+    const credential = EmailAuthProvider.credential(user.email, currentPassword);
+    await reauthenticateWithCredential(user, credential);
+    await updatePassword(user, newPassword);
+  }, [user]);
+
   const value = useMemo<AuthContextValue>(() => ({
     user,
     profile,
@@ -407,7 +455,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshProfile,
     refreshSession,
     sendAccountVerificationEmail,
-  }), [configurationError, isAdmin, loading, logIn, logOut, profile, refreshProfile, refreshSession, saveProfile, sendAccountVerificationEmail, signUp, signUpAdmin, user]);
+    requestPasswordReset,
+    changePassword,
+  }), [changePassword, configurationError, isAdmin, loading, logIn, logOut, profile, refreshProfile, refreshSession, requestPasswordReset, saveProfile, sendAccountVerificationEmail, signUp, signUpAdmin, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

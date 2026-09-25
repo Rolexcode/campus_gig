@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { cleanConversationId, requireConversationAccess } from "@/app/lib/conversations";
 import { parseDisputeInput } from "@/app/lib/disputes";
+import { decryptEmbeddedWallet } from "@/app/lib/embedded-wallet";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
 import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
 import { writeGigEvent } from "@/app/lib/gig-audit";
@@ -10,6 +11,15 @@ import {
   requireMarketplaceUser,
 } from "@/app/lib/server-auth";
 import { writeUserNotification } from "@/app/lib/user-notifications";
+import {
+  buildProgramDisputeTransaction,
+  getProgramEscrow,
+} from "@/app/lib/program-escrow";
+import { reasonDigest } from "@/app/lib/program-escrow-codec";
+import {
+  broadcastFundingTransaction,
+  confirmFundingTransaction,
+} from "@/app/lib/solana-payments";
 
 export const runtime = "nodejs";
 
@@ -63,6 +73,42 @@ export async function POST(
     const gigReference = adminDb.collection("gigs").doc(id);
     const paymentReference = adminDb.collection("gigPayments").doc(id);
     const disputeReference = adminDb.collection("gigDisputes").doc(id);
+    const initialPaymentSnapshot = await paymentReference.get();
+    if (!initialPaymentSnapshot.exists) {
+      throw new ApiAuthError("The funded contract could not be found.", 404);
+    }
+    let disputeSignature = "";
+    if (String(initialPaymentSnapshot.data()?.settlementMethod ?? "") === "solana_program") {
+      let onChain = await getProgramEscrow(id);
+      if (!onChain) throw new ApiAuthError("The on-chain escrow could not be found.", 409);
+      if (onChain.account.status !== "disputed") {
+        const walletSnapshot = await adminDb.collection("walletKeys").doc(decoded.uid).get();
+        if (!walletSnapshot.exists) {
+          throw new ApiAuthError("Your embedded wallet signer could not be found.", 409);
+        }
+        const authority = decryptEmbeddedWallet(walletSnapshot.data() ?? {}, `user:${decoded.uid}`);
+        const signed = await buildProgramDisputeTransaction({
+          gigId: id,
+          authority,
+          reasonHash: reasonDigest({ gigId: id, ...input }),
+        });
+        disputeSignature = await broadcastFundingTransaction(signed.signedTransaction);
+        await confirmFundingTransaction({
+          signature: disputeSignature,
+          blockhash: signed.blockhash,
+          lastValidBlockHeight: signed.lastValidBlockHeight,
+        });
+        onChain = await getProgramEscrow(id);
+      }
+      if (
+        !onChain ||
+        onChain.account.status !== "disputed" ||
+        onChain.account.disputedBy !==
+          String((await adminDb.collection("walletKeys").doc(decoded.uid).get()).data()?.publicKey ?? "")
+      ) {
+        throw new ApiAuthError("The on-chain dispute could not be verified.", 409);
+      }
+    }
 
     await adminDb.runTransaction(async (transaction) => {
       const [gigSnapshot, paymentSnapshot, disputeSnapshot] = await Promise.all([
@@ -107,6 +153,7 @@ export async function POST(
         openedBy: decoded.uid,
         openedByRole,
         ...input,
+        disputeSignature,
         status: "open",
         priorGigStatus: currentStatus,
         priorPaymentStatus: currentPaymentStatus,
