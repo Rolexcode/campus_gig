@@ -93,6 +93,11 @@ export type MarketplaceMessage = {
   senderName: string;
   senderRole: "client" | "student" | "system";
   text: string;
+  attachment?: {
+    name: string;
+    size: number;
+    contentType: string;
+  };
   createdAt: string;
 };
 
@@ -111,6 +116,15 @@ export type MarketplacePayment = {
   feesSponsored: boolean;
   fundingSignature: string;
   releaseSignature: string;
+  provider: "flutterwave" | "";
+  providerReference: string;
+  providerTransactionId: string;
+  providerSessionId: string;
+  virtualAccountNumber: string;
+  virtualAccountBank: string;
+  virtualAccountExpiresAt: string;
+  providerPayableAmount: string;
+  amountMinorUnits: string;
   status: MarketplacePaymentStatus;
   failureReason: string;
   createdAt: string;
@@ -151,6 +165,10 @@ export type MarketplaceApplicantProfile = {
   linkedIn: string;
   gitHub: string;
   availability: string;
+  country: string;
+  yearsExperience: number | null;
+  languages: string;
+  portfolioLinks: import("./profile-details").PortfolioLink[];
   photoDataUrl: string;
   studentVerified: boolean;
   completedGigCount: number;

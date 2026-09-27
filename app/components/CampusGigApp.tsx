@@ -32,9 +32,14 @@ import {
   Clock3,
   FileCheck2,
   FileText,
+  Download,
+  ExternalLink,
+  Flag,
   GraduationCap,
   LayoutDashboard,
   LockKeyhole,
+  Paperclip,
+  Plus,
   Copy,
   Menu,
   MessageSquare,
@@ -60,6 +65,16 @@ import {
   type MarketplaceWorkSubmission,
   type SettlementPreference,
 } from "@/app/lib/gigs";
+import {
+  portfolioLinkDetails,
+  profileCompleteness,
+  type PortfolioLink,
+} from "@/app/lib/profile-details";
+import {
+  attachmentValidationMessage,
+  CHAT_ATTACHMENT_MAX_BYTES,
+} from "@/app/lib/chat-attachments";
+import type { ConversationPresence } from "@/app/lib/conversation-presence";
 
 type RouteProps = { route: string[] };
 type GigStatus =
@@ -77,6 +92,7 @@ type VerificationStatus = "unverified" | "pending" | "verified";
 type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string;
 };
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() || "";
 const PathnameContext = createContext("/");
 type AppState = {
   applied: number[];
@@ -97,6 +113,9 @@ type AppState = {
   profileLinkedIn: string;
   profileGitHub: string;
   profileAvailability: string;
+  profileYearsExperience: number;
+  profileLanguages: string;
+  profileLinks: PortfolioLink[];
   profilePhotoName: string;
   profilePhotoDataUrl: string;
   verificationStatus: VerificationStatus;
@@ -127,6 +146,9 @@ const initialState: AppState = {
   profileLinkedIn: "",
   profileGitHub: "",
   profileAvailability: "Available for short projects",
+  profileYearsExperience: 0,
+  profileLanguages: "",
+  profileLinks: [],
   profilePhotoName: "",
   profilePhotoDataUrl: "",
   verificationStatus: "unverified",
@@ -470,6 +492,9 @@ function AppStateProvider({ children }: { children: ReactNode }) {
       profileGitHub: profile.gitHub || "",
       profileAvailability:
         profile.availability || initialState.profileAvailability,
+      profileYearsExperience: profile.yearsExperience ?? 0,
+      profileLanguages: profile.languages || "",
+      profileLinks: profile.portfolioLinks || [],
       profilePhotoName: profile.photoName || "",
       profilePhotoDataUrl: profile.photoDataUrl || "",
       verificationStatus:
@@ -1040,27 +1065,173 @@ function AppHeader() {
 function Footer() {
   return (
     <footer className="border-t border-border bg-surface">
-      <div className="page-shell grid gap-8 py-10 sm:grid-cols-[1fr_auto] sm:items-end">
-        <div className="max-w-md">
+      <div className="page-shell py-12">
+        <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+          <div className="max-w-sm">
           <Brand />
           <p className="mt-3 text-sm leading-6 text-muted">
             Protected work with local and cross-border settlement for student
             communities worldwide.
           </p>
+            <p className="mt-4 text-xs leading-5 text-muted">
+              CampusGig is in product beta. Solana settlement uses Devnet test
+              assets only; do not send mainnet funds.
+            </p>
+          </div>
+          <nav aria-label="Marketplace links">
+            <h2 className="text-sm font-bold">Marketplace</h2>
+            <div className="mt-4 grid gap-3 text-sm text-muted">
+              <Link className="footer-link w-fit" href="/gigs">
+                Browse gigs
+              </Link>
+              <Link className="footer-link w-fit" href="/post">
+                Post a gig
+              </Link>
+              <Link className="footer-link w-fit" href="/people">
+                Find people
+              </Link>
+            </div>
+          </nav>
+          <nav aria-label="Trust and support links">
+            <h2 className="text-sm font-bold">Trust and support</h2>
+            <div className="mt-4 grid gap-3 text-sm text-muted">
+              <Link className="footer-link w-fit" href="/trust">
+                Trust centre
+              </Link>
+              <Link className="footer-link w-fit" href="/help">
+                Help centre
+              </Link>
+              <Link className="footer-link w-fit" href="/trust#reporting">
+                Report a concern
+              </Link>
+            </div>
+          </nav>
+          <nav aria-label="Legal links">
+            <h2 className="text-sm font-bold">Legal</h2>
+            <div className="mt-4 grid gap-3 text-sm text-muted">
+              <Link className="footer-link w-fit" href="/terms">
+                Beta terms
+              </Link>
+              <Link className="footer-link w-fit" href="/privacy">
+                Privacy notice
+              </Link>
+            </div>
+          </nav>
         </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
-          <Link className="footer-link" href="/gigs">
-            Browse gigs
-          </Link>
-          <Link className="footer-link" href="/post">
-            Post a gig
-          </Link>
-          <span>© 2026 CampusGig</span>
+        <div className="mt-10 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
+          <span>© 2026 CampusGig. All rights reserved.</span>
+          <span>Built for verified student talent across borders.</span>
         </div>
       </div>
     </footer>
   );
 }
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_024 * 1_024) return `${Math.round(bytes / 1_024)} KB`;
+  return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
+}
+
+function linkedMessageText(text: string, mine: boolean) {
+  return text.split(/(https?:\/\/[^\s<>]+)/gi).map((part, index) => {
+    if (!/^https?:\/\//i.test(part)) return <span key={index}>{part}</span>;
+    let safe = false;
+    try {
+      safe = ["http:", "https:"].includes(new URL(part).protocol);
+    } catch {
+      safe = false;
+    }
+    return safe ? (
+      <a
+        className={`underline decoration-2 underline-offset-2 ${mine ? "text-white" : "text-primary"}`}
+        href={part}
+        key={index}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={index}>{part}</span>
+    );
+  });
+}
+
+function presenceLabel(presence: ConversationPresence) {
+  if (presence.typing) return "Typing…";
+  if (presence.online) return "Active now";
+  return presence.lastSeenAt
+    ? `Last active ${formatGigDate(presence.lastSeenAt)}`
+    : "Offline";
+}
+
+function ConnectivityBanner() {
+  const [connectionState, setConnectionState] = useState<
+    "online" | "offline" | "restored"
+  >("online");
+  const wasOffline = useRef(false);
+
+  useEffect(() => {
+    let restoredTimer: number | undefined;
+    const showOffline = () => {
+      wasOffline.current = true;
+      if (restoredTimer) window.clearTimeout(restoredTimer);
+      setConnectionState("offline");
+    };
+    const showRestored = () => {
+      if (!wasOffline.current) return;
+      wasOffline.current = false;
+      setConnectionState("restored");
+      restoredTimer = window.setTimeout(
+        () => setConnectionState("online"),
+        3_000,
+      );
+    };
+
+    window.addEventListener("offline", showOffline);
+    window.addEventListener("online", showRestored);
+    const initialTimer = window.setTimeout(() => {
+      if (!window.navigator.onLine) showOffline();
+    }, 0);
+
+    return () => {
+      window.removeEventListener("offline", showOffline);
+      window.removeEventListener("online", showRestored);
+      window.clearTimeout(initialTimer);
+      if (restoredTimer) window.clearTimeout(restoredTimer);
+    };
+  }, []);
+
+  if (connectionState === "online") return null;
+
+  const offline = connectionState === "offline";
+  return (
+    <div
+      className={`border-b px-4 py-3 text-sm ${
+        offline
+          ? "border-amber-200 bg-amber-50 text-amber-950"
+          : "border-emerald-200 bg-emerald-50 text-emerald-950"
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="page-shell flex items-center justify-center gap-2 text-center font-semibold">
+        {offline ? (
+          <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
+        )}
+        <span>
+          {offline
+            ? "You’re offline. Changes cannot be saved until your connection returns."
+            : "Connection restored. You can continue safely."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function AppLayout({
   children,
   publicPage = false,
@@ -1072,7 +1243,8 @@ function AppLayout({
   return (
     <div className="min-h-screen bg-background text-foreground">
       {publicPage || !user ? <PublicHeader /> : <AppHeader />}
-      <main>{children}</main>
+      <ConnectivityBanner />
+      <main id="main-content" tabIndex={-1}>{children}</main>
       <Footer />
     </div>
   );
@@ -1752,7 +1924,7 @@ function SignupPage() {
         </button>
         <p className="text-center text-xs leading-5 text-muted">
           <LockKeyhole className="mr-1 inline size-3.5 text-primary" />
-          We’ll email you a secure Firebase verification link before onboarding.
+          We’ll email you a secure verification link before onboarding.
         </p>
       </form>
     </AuthShell>
@@ -1915,7 +2087,7 @@ function ForgotPasswordPage({ admin = false }: { admin?: boolean }) {
       <div>
         <h2 className="text-xl font-bold">Check your inbox</h2>
         <p className="mt-2 text-sm leading-6 text-muted">
-          If an account exists for that email, Firebase has sent a password-reset link. Check spam too.
+          If an account exists for that email, we’ve sent a password-reset link. Check spam too.
         </p>
       </div>
       <Link
@@ -1963,7 +2135,7 @@ function ForgotPasswordPage({ admin = false }: { admin?: boolean }) {
     return (
       <AdminAuthShell
         title="Reset administrator password"
-        description="Firebase will send a secure reset link to your approved administrator email."
+        description="We’ll send a secure reset link to your approved administrator email."
         footer={<Link className="font-semibold text-emerald-700 underline underline-offset-4" href="/admin/login">Back to admin login</Link>}
       >
         {content}
@@ -1973,7 +2145,7 @@ function ForgotPasswordPage({ admin = false }: { admin?: boolean }) {
   return (
     <AuthShell
       title="Reset your password"
-      description="Enter your account email and we’ll send a secure Firebase reset link."
+      description="Enter your account email and we’ll send a secure reset link."
       footer={<Link className="text-link" href="/login">Back to login</Link>}
     >
       {content}
@@ -2175,7 +2347,7 @@ function VerifyEmailPage() {
     try {
       await sendAccountVerificationEmail();
       setNotice(
-        `Firebase sent a verification link to ${user?.email}. Check your inbox and spam folder.`,
+        `We sent a verification link to ${user?.email}. Check your inbox and spam folder.`,
       );
     } catch (sendError) {
       setError(firebaseErrorMessage(sendError));
@@ -2214,7 +2386,7 @@ function VerifyEmailPage() {
       await refreshSession();
       if (!user.emailVerified) {
         throw new Error(
-          "That email is not verified yet. Open the Firebase link in your inbox, then try again.",
+          "That email is not verified yet. Open the verification link in your inbox, then try again.",
         );
       }
       navigate(
@@ -2277,7 +2449,7 @@ function VerifyEmailPage() {
           </p>
         </div>
         <div className="rounded-xl border border-border p-4">
-          <p className="font-semibold">Open the link from Firebase</p>
+          <p className="font-semibold">Open the verification link</p>
           <p className="mt-2 text-sm leading-6 text-muted">
             Keep this page open, click the verification link in your inbox, then
             return here to confirm.
@@ -2328,7 +2500,11 @@ function AdminAuthShell({
 }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <main className="mx-auto grid min-h-screen max-w-6xl gap-10 px-4 py-8 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:items-center lg:px-8">
+      <main
+        className="mx-auto grid min-h-screen max-w-6xl gap-10 px-4 py-8 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:items-center lg:px-8"
+        id="main-content"
+        tabIndex={-1}
+      >
         <section className="max-w-xl">
           <div className="flex items-center gap-3">
             <span className="grid size-11 place-items-center rounded-xl bg-emerald-400 text-slate-950">
@@ -2357,8 +2533,7 @@ function AdminAuthShell({
               />
               <p className="mt-3 text-sm font-semibold">User oversight</p>
               <p className="mt-1 text-xs leading-5 text-slate-400">
-                Inspect real Firebase accounts without appearing in the member
-                list.
+                Review member accounts without entering the marketplace.
               </p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -2665,7 +2840,7 @@ function AdminVerifyEmailPage() {
     try {
       await sendAccountVerificationEmail();
       setNotice(
-        `Firebase sent an administrator verification link to ${user?.email}.`,
+        `We sent an administrator verification link to ${user?.email}.`,
       );
     } catch (sendError) {
       setError(firebaseErrorMessage(sendError));
@@ -2698,7 +2873,7 @@ function AdminVerifyEmailPage() {
       await refreshSession();
       if (!user.emailVerified)
         throw new Error(
-          "The administrator email is not verified yet. Open the Firebase link, then try again.",
+          "The administrator email is not verified yet. Open the verification link, then try again.",
         );
       navigate("/admin");
     } catch (verificationError) {
@@ -2926,7 +3101,7 @@ function JobFeedPage() {
             <div className="mt-6 rounded-lg bg-ink p-4 text-white">
               <p className="text-sm font-semibold">Live marketplace</p>
               <p className="mt-2 text-xs leading-5 text-slate-300">
-                New gigs persist in Firestore and appear here after publishing.
+                New gigs appear here as soon as they are published.
               </p>
             </div>
           </aside>
@@ -3693,11 +3868,22 @@ function ProfileWorkspacePage() {
     .split(",")
     .map((skill) => skill.trim())
     .filter(Boolean);
-  const profileLinks = [
-    ["Portfolio", state.profilePortfolio],
-    ["LinkedIn", state.profileLinkedIn],
-    ["GitHub", state.profileGitHub],
-  ].filter(([, href]) => Boolean(href));
+  const profileLinks = state.profileLinks.length
+    ? state.profileLinks
+    : [
+        { label: "Portfolio", url: state.profilePortfolio, type: "website" as const },
+        { label: "LinkedIn", url: state.profileLinkedIn, type: "linkedin" as const },
+        { label: "GitHub", url: state.profileGitHub, type: "github" as const },
+      ].filter((item) => Boolean(item.url));
+  const completion = profileCompleteness({
+    photoDataUrl: state.profilePhotoDataUrl,
+    headline: state.profileHeadline,
+    bio: state.profileBio,
+    skills: state.profileSkills,
+    yearsExperience: state.profileYearsExperience,
+    languages: state.profileLanguages,
+    portfolioLinks: profileLinks,
+  });
   const walletAddress = profile?.walletAddress ?? "";
   const visibleWalletAddress = walletAddress
     ? `${walletAddress.slice(0, 7)}...${walletAddress.slice(-7)}`
@@ -3828,7 +4014,7 @@ function ProfileWorkspacePage() {
                 </div>
               </div>
 
-              <div className="mt-8 grid gap-4 border-t border-border pt-7 sm:grid-cols-3">
+              <div className="mt-8 grid gap-4 border-t border-border pt-7 sm:grid-cols-2 lg:grid-cols-4">
                 {[
                   ["Completed gigs", String(state.completedGigCount)],
                   [
@@ -3838,9 +4024,12 @@ function ProfileWorkspacePage() {
                       : "—",
                   ],
                   [
-                    "USDC earned",
-                    formatUsdcBaseUnits(state.totalEarnedUsdcBaseUnits),
+                    "Experience",
+                    state.profileYearsExperience === 1
+                      ? "1 year"
+                      : `${state.profileYearsExperience} years`,
                   ],
+                  ["Profile strength", `${completion}%`],
                 ].map(([label, value]) => (
                   <div className="rounded-lg bg-muted-surface p-4" key={label}>
                     <p className="text-xs font-bold uppercase tracking-wide text-muted">
@@ -3874,18 +4063,27 @@ function ProfileWorkspacePage() {
                 </div>
               )}
 
+              {state.profileLanguages && (
+                <div className="mt-8">
+                  <h3 className="font-bold">Languages</h3>
+                  <p className="mt-3 text-sm leading-6 text-muted">
+                    {state.profileLanguages}
+                  </p>
+                </div>
+              )}
+
               {profileLinks.length > 0 && (
                 <div className="mt-8 flex flex-wrap gap-3 border-t border-border pt-6">
-                  {profileLinks.map(([label, href]) => (
+                  {profileLinks.map((item) => (
                     <a
                       className="btn btn-secondary"
-                      href={href}
+                      href={item.url}
                       target="_blank"
-                      rel="noreferrer"
-                      key={label}
+                      rel="noopener noreferrer"
+                      key={item.url}
                     >
-                      {label}
-                      <ArrowRight className="size-4" />
+                      {item.label}
+                      <ExternalLink className="size-4" />
                     </a>
                   ))}
                 </div>
@@ -4049,10 +4247,21 @@ function EditProfileWorkspacePage() {
   const [headline, setHeadline] = useState(state.profileHeadline);
   const [bio, setBio] = useState(state.profileBio);
   const [skills, setSkills] = useState(state.profileSkills);
-  const [portfolio, setPortfolio] = useState(state.profilePortfolio);
-  const [linkedIn, setLinkedIn] = useState(state.profileLinkedIn);
-  const [gitHub, setGitHub] = useState(state.profileGitHub);
+  const portfolio = state.profilePortfolio;
+  const linkedIn = state.profileLinkedIn;
+  const gitHub = state.profileGitHub;
   const [availability, setAvailability] = useState(state.profileAvailability);
+  const [yearsExperience, setYearsExperience] = useState(
+    String(state.profileYearsExperience),
+  );
+  const [languages, setLanguages] = useState(state.profileLanguages);
+  const [portfolioLinks, setPortfolioLinks] = useState<PortfolioLink[]>(
+    state.profileLinks.length
+      ? state.profileLinks
+      : [state.profilePortfolio, state.profileLinkedIn, state.profileGitHub]
+          .map((url) => portfolioLinkDetails(url))
+          .filter((item): item is PortfolioLink => Boolean(item)),
+  );
   const [photoName, setPhotoName] = useState(state.profilePhotoName);
   const [photoDataUrl, setPhotoDataUrl] = useState(state.profilePhotoDataUrl);
   const [photoError, setPhotoError] = useState("");
@@ -4081,6 +4290,9 @@ function EditProfileWorkspacePage() {
         linkedIn,
         gitHub,
         availability,
+        yearsExperience: Number(yearsExperience),
+        languages,
+        portfolioLinks,
         photoName,
         photoDataUrl,
       });
@@ -4098,6 +4310,9 @@ function EditProfileWorkspacePage() {
         profileLinkedIn: linkedIn,
         profileGitHub: gitHub,
         profileAvailability: availability,
+        profileYearsExperience: Number(yearsExperience),
+        profileLanguages: languages,
+        profileLinks: portfolioLinks,
         profilePhotoName: photoName,
         profilePhotoDataUrl: photoDataUrl,
       }));
@@ -4131,6 +4346,45 @@ function EditProfileWorkspacePage() {
           : "That image could not be prepared.",
       );
     }
+  };
+
+  const addPortfolioLink = () => {
+    if (portfolioLinks.length >= 8) return;
+    setPortfolioLinks((current) => [
+      ...current,
+      { label: "Portfolio", url: "", type: "website" },
+    ]);
+  };
+
+  const updatePortfolioLink = (
+    index: number,
+    key: "label" | "url",
+    value: string,
+  ) => {
+    setPortfolioLinks((current) =>
+      current.map((item, itemIndex) => {
+        if (itemIndex !== index) return item;
+        if (key === "label") return { ...item, label: value.slice(0, 40) };
+        const detected = portfolioLinkDetails(value);
+        const genericLabels = [
+          "Portfolio",
+          "GitHub",
+          "LinkedIn",
+          "Behance",
+          "Dribbble",
+          "YouTube",
+        ];
+        return {
+          ...item,
+          url: value,
+          type: detected?.type ?? "website",
+          label:
+            !item.label || genericLabels.includes(item.label)
+              ? detected?.label ?? item.label
+              : item.label,
+        };
+      }),
+    );
   };
 
   return (
@@ -4356,64 +4610,140 @@ function EditProfileWorkspacePage() {
           >
             <div>
               <h2 id="work-links-heading" className="text-lg font-bold">
-                Skills and work links
+                Professional profile
               </h2>
               <p className="mt-1 text-sm text-muted">
-                Everything in this section is optional.
+                Give clients enough context to decide whether you are right for
+                their project. You can build this up over time.
               </p>
-            </div>
-            <div className="field mt-6">
-              <label htmlFor="profile-skills">Skills</label>
-              <input
-                className="input"
-                id="profile-skills"
-                type="text"
-                value={skills}
-                onChange={(event) => setSkills(event.target.value)}
-                placeholder="React, Canva, Research, Video editing"
-              />
-              <p className="field-hint">Separate skills with commas.</p>
             </div>
             <div className="mt-5 grid gap-5 sm:grid-cols-2">
               <div className="field">
-                <label htmlFor="profile-portfolio">Portfolio</label>
+                <label htmlFor="profile-skills">Skills</label>
                 <input
                   className="input"
-                  id="profile-portfolio"
-                  type="url"
-                  inputMode="url"
-                  value={portfolio}
-                  onChange={(event) => setPortfolio(event.target.value)}
-                  placeholder="https://yourportfolio.com"
+                  id="profile-skills"
+                  type="text"
+                  value={skills}
+                  onChange={(event) => setSkills(event.target.value)}
+                  placeholder="React, Canva, Research, Video editing"
                 />
+                <p className="field-hint">Separate skills with commas.</p>
               </div>
               <div className="field">
-                <label htmlFor="profile-linkedin">LinkedIn</label>
-                <input
-                  className="input"
-                  id="profile-linkedin"
-                  type="url"
-                  inputMode="url"
-                  value={linkedIn}
-                  onChange={(event) => setLinkedIn(event.target.value)}
-                  placeholder="https://linkedin.com/in/yourname"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="profile-github">
-                  GitHub, Behance, or Dribbble
+                <label htmlFor="profile-years-experience">
+                  Years of experience
                 </label>
                 <input
                   className="input"
-                  id="profile-github"
-                  type="url"
-                  inputMode="url"
-                  value={gitHub}
-                  onChange={(event) => setGitHub(event.target.value)}
-                  placeholder="https://github.com/yourname"
+                  id="profile-years-experience"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={yearsExperience}
+                  onChange={(event) =>
+                    setYearsExperience(
+                      event.target.value.replace(/\D/g, "").slice(0, 2),
+                    )
+                  }
+                  required
                 />
               </div>
+              <div className="field sm:col-span-2">
+                <label htmlFor="profile-languages">Languages</label>
+                <input
+                  className="input"
+                  id="profile-languages"
+                  type="text"
+                  value={languages}
+                  onChange={(event) => setLanguages(event.target.value)}
+                  placeholder="English (fluent), French (conversational)"
+                  maxLength={300}
+                />
+                <p className="field-hint">
+                  Include your level when it helps clients work with you.
+                </p>
+              </div>
             </div>
+
+            <fieldset className="mt-8 border-t border-border pt-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <legend className="font-bold">Work and portfolio links</legend>
+                  <p className="mt-1 text-sm leading-6 text-muted">
+                    Add a personal site, GitHub, LinkedIn, Behance, Dribbble,
+                    YouTube, or any public page that proves your work.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={addPortfolioLink}
+                  disabled={portfolioLinks.length >= 8}
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  Add link
+                </button>
+              </div>
+              {portfolioLinks.length === 0 ? (
+                <div className="mt-5 rounded-xl border border-dashed border-border bg-muted-surface p-5 text-sm leading-6 text-muted">
+                  No links yet. Add one whenever you have work you want clients
+                  to see.
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {portfolioLinks.map((item, index) => (
+                    <div
+                      className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-[180px_minmax(0,1fr)_44px]"
+                      key={`${index}-${item.type}`}
+                    >
+                      <div className="field">
+                        <label htmlFor={`portfolio-label-${index}`}>Label</label>
+                        <input
+                          className="input"
+                          id={`portfolio-label-${index}`}
+                          type="text"
+                          value={item.label}
+                          onChange={(event) =>
+                            updatePortfolioLink(index, "label", event.target.value)
+                          }
+                          maxLength={40}
+                          placeholder="GitHub"
+                          required
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor={`portfolio-url-${index}`}>HTTPS link</label>
+                        <input
+                          className="input"
+                          id={`portfolio-url-${index}`}
+                          type="url"
+                          inputMode="url"
+                          value={item.url}
+                          onChange={(event) =>
+                            updatePortfolioLink(index, "url", event.target.value)
+                          }
+                          placeholder="https://github.com/yourname"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary self-end px-0"
+                        onClick={() =>
+                          setPortfolioLinks((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                        aria-label={`Remove ${item.label || "portfolio"} link`}
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </fieldset>
           </section>
 
           <section
@@ -5962,7 +6292,7 @@ function PostGigPage() {
               <CheckCircle2 className="size-7" aria-hidden="true" />
             </span>
             <p className="mt-5 text-xs font-bold uppercase tracking-[.12em] text-primary">
-              Published to Firestore
+              Published
             </p>
             <h2 className="mt-2 text-2xl font-bold">Your gig is live</h2>
             <p className="mx-auto mt-3 max-w-lg leading-7 text-muted">
@@ -7269,7 +7599,7 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
                         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
                           {profile.bio || "No bio added yet."}
                         </p>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                           {[
                             ["Completed gigs", String(profile.completedGigCount)],
                             [
@@ -7279,8 +7609,16 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
                                 : "—",
                             ],
                             [
-                              "USDC earned",
-                              formatUsdcBaseUnits(profile.totalEarnedUsdcBaseUnits),
+                              "Experience",
+                              profile.yearsExperience === null
+                                ? "Not added"
+                                : profile.yearsExperience === 1
+                                  ? "1 year"
+                                  : `${profile.yearsExperience} years`,
+                            ],
+                            [
+                              "Student status",
+                              profile.studentVerified ? "Verified" : "Not verified",
                             ],
                           ].map(([label, value]) => (
                             <div className="rounded-lg bg-muted-surface p-4" key={label}>
@@ -7291,13 +7629,21 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
                             </div>
                           ))}
                         </div>
-                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                           <div className="rounded-lg bg-muted-surface p-4">
                             <p className="text-xs font-bold uppercase tracking-wide text-muted">
                               Skills
                             </p>
                             <p className="mt-2 text-sm font-semibold">
                               {profile.skills || "Not added"}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-muted-surface p-4">
+                            <p className="text-xs font-bold uppercase tracking-wide text-muted">
+                              Languages
+                            </p>
+                            <p className="mt-2 text-sm font-semibold">
+                              {profile.languages || "Not added"}
                             </p>
                           </div>
                           <div className="rounded-lg bg-muted-surface p-4">
@@ -7315,26 +7661,19 @@ function MarketplaceApplicantsPage({ id }: { id: string }) {
                           Profile links
                         </p>
                         <div className="mt-3 grid gap-2">
-                          {[
-                            ["Portfolio", profile.portfolio],
-                            ["LinkedIn", profile.linkedIn],
-                            ["GitHub", profile.gitHub],
-                          ]
-                            .filter(([, href]) => href)
-                            .map(([label, href]) => (
+                          {profile.portfolioLinks
+                            .map((item) => (
                               <a
                                 className="text-link min-h-11 py-2"
-                                href={href}
-                                key={label}
+                                href={item.url}
+                                key={item.url}
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                               >
-                                {label} <ArrowRight className="size-4" />
+                                {item.label} <ExternalLink className="size-4" />
                               </a>
                             ))}
-                          {!profile.portfolio &&
-                            !profile.linkedIn &&
-                            !profile.gitHub && (
+                          {profile.portfolioLinks.length === 0 && (
                               <p className="text-sm text-muted">
                                 No links added.
                               </p>
@@ -7362,13 +7701,27 @@ function MarketplaceConversationPage({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [messageAttachment, setMessageAttachment] = useState<File | null>(null);
+  const [attachmentError, setAttachmentError] = useState("");
+  const [presence, setPresence] = useState<ConversationPresence>({
+    online: false,
+    typing: false,
+    lastSeenAt: "",
+  });
   const [sending, setSending] = useState(false);
+  const [reportingMessageId, setReportingMessageId] = useState("");
+  const [reportCategory, setReportCategory] = useState("harassment");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportNotice, setReportNotice] = useState("");
   const [termsBusy, setTermsBusy] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [payment, setPayment] = useState<MarketplacePayment | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(true);
   const [funding, setFunding] = useState(false);
   const [paymentError, setPaymentError] = useState("");
+  const [copiedLocalAccount, setCopiedLocalAccount] = useState(false);
   const [clientWalletAddress, setClientWalletAddress] = useState("");
   const [clientUsdcBalance, setClientUsdcBalance] = useState("");
   const [feeSponsorshipAvailable, setFeeSponsorshipAvailable] = useState(false);
@@ -7394,7 +7747,10 @@ function MarketplaceConversationPage({ id }: { id: string }) {
   const hydratedVersion = useRef(-1);
   const requestActive = useRef(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const attachmentInput = useRef<HTMLInputElement>(null);
   const hydratedSubmissionRevision = useRef(0);
+  const typingState = useRef(false);
+  const typingRequestAt = useRef(0);
 
   const loadConversation = useCallback(
     async (quiet = false) => {
@@ -7420,6 +7776,13 @@ function MarketplaceConversationPage({ id }: { id: string }) {
         setConversation(nextConversation);
         setMessages(Array.isArray(payload.messages) ? payload.messages : []);
         setRole(payload.role === "client" ? "client" : "student");
+        setPresence(
+          (payload.presence as ConversationPresence | undefined) ?? {
+            online: false,
+            typing: false,
+            lastSeenAt: "",
+          },
+        );
         if (hydratedVersion.current !== nextConversation.agreementVersion) {
           setScope(nextConversation.agreement.scope);
           setDeliverables(nextConversation.agreement.deliverables);
@@ -7529,6 +7892,31 @@ function MarketplaceConversationPage({ id }: { id: string }) {
     [id, user],
   );
 
+  const updatePresence = useCallback(
+    async (typing: boolean) => {
+      if (!user) return;
+      typingState.current = typing;
+      try {
+        const token = await user.getIdToken();
+        await fetch(
+          `/api/gigs/${encodeURIComponent(id)}/conversation/presence`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ typing }),
+            keepalive: true,
+          },
+        );
+      } catch {
+        // Presence is best effort and never blocks a message or agreement.
+      }
+    },
+    [id, user],
+  );
+
   useEffect(() => {
     const firstLoad = window.setTimeout(() => {
       void loadConversation(false);
@@ -7541,6 +7929,33 @@ function MarketplaceConversationPage({ id }: { id: string }) {
       window.clearInterval(polling);
     };
   }, [loadConversation]);
+
+  useEffect(() => {
+    void updatePresence(false);
+    const heartbeat = window.setInterval(() => {
+      void updatePresence(typingState.current);
+    }, 25_000);
+    return () => {
+      window.clearInterval(heartbeat);
+      void updatePresence(false);
+    };
+  }, [updatePresence]);
+
+  useEffect(() => {
+    const isTyping = Boolean(messageText.trim());
+    if (!isTyping) {
+      if (typingState.current) void updatePresence(false);
+      return;
+    }
+    const debounce = window.setTimeout(() => {
+      const now = Date.now();
+      if (!typingState.current || now - typingRequestAt.current > 3_000) {
+        typingRequestAt.current = now;
+        void updatePresence(true);
+      }
+    }, 350);
+    return () => window.clearTimeout(debounce);
+  }, [messageText, updatePresence]);
 
   useEffect(() => {
     const firstLoad = window.setTimeout(() => {
@@ -7578,20 +7993,20 @@ function MarketplaceConversationPage({ id }: { id: string }) {
   const sendMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = messageText.trim();
-    if (!user || !text || sending) return;
+    if (!user || (!text && !messageAttachment) || sending) return;
     setSending(true);
     setError("");
     try {
       const token = await user.getIdToken();
+      const body = new FormData();
+      body.set("text", text);
+      if (messageAttachment) body.set("attachment", messageAttachment);
       const response = await fetch(
         `/api/gigs/${encodeURIComponent(id)}/conversation/messages`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ text }),
+          headers: { Authorization: `Bearer ${token}` },
+          body,
         },
       );
       const payload = await response.json().catch(() => ({}));
@@ -7600,6 +8015,10 @@ function MarketplaceConversationPage({ id }: { id: string }) {
           String(payload.error ?? "Your message could not be sent."),
         );
       setMessageText("");
+      setMessageAttachment(null);
+      if (attachmentInput.current) attachmentInput.current.value = "";
+      setAttachmentError("");
+      void updatePresence(false);
       await loadConversation(true);
     } catch (sendError) {
       setError(
@@ -7717,6 +8136,144 @@ function MarketplaceConversationPage({ id }: { id: string }) {
       await loadPayment(true);
     } finally {
       setFunding(false);
+    }
+  };
+
+  const submitMessageReport = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user || !reportingMessageId || reportBusy) return;
+    setReportBusy(true);
+    setReportError("");
+    setReportNotice("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/conversation/messages/${encodeURIComponent(reportingMessageId)}/report`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            category: reportCategory,
+            details: reportDetails,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "The report could not be sent."),
+        );
+      }
+      setReportingMessageId("");
+      setReportCategory("harassment");
+      setReportDetails("");
+      setReportNotice(
+        "Report sent privately. CampusGig safety will review the preserved message evidence.",
+      );
+    } catch (reportFailure) {
+      setReportError(
+        reportFailure instanceof Error
+          ? reportFailure.message
+          : "The report could not be sent.",
+      );
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const prepareLocalPayment = async () => {
+    if (!user || funding) return;
+    setFunding(true);
+    setPaymentError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/local-payment`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "The bank-transfer account could not be prepared."),
+        );
+      }
+      setPayment((payload.payment as MarketplacePayment | null) ?? null);
+      await loadPayment(true);
+    } catch (fundError) {
+      setPaymentError(
+        fundError instanceof Error
+          ? fundError.message
+          : "The bank-transfer account could not be prepared.",
+      );
+      await loadPayment(true);
+    } finally {
+      setFunding(false);
+    }
+  };
+
+  const chooseMessageAttachment = (file?: File) => {
+    setAttachmentError("");
+    if (!file) {
+      setMessageAttachment(null);
+      if (attachmentInput.current) attachmentInput.current.value = "";
+      return;
+    }
+    const validation = attachmentValidationMessage(file);
+    if (validation) {
+      setMessageAttachment(null);
+      setAttachmentError(validation);
+      return;
+    }
+    setMessageAttachment(file);
+  };
+
+  const downloadAttachment = async (message: MarketplaceMessage) => {
+    if (!user || !message.attachment) return;
+    setAttachmentError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/gigs/${encodeURIComponent(id)}/conversation/messages/${encodeURIComponent(message.id)}/attachment`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(
+          String(payload.error ?? "The attachment could not be downloaded."),
+        );
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = message.attachment.name;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (downloadError) {
+      setAttachmentError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "The attachment could not be downloaded.",
+      );
+    }
+  };
+
+  const copyLocalAccount = async () => {
+    if (!payment?.virtualAccountNumber) return;
+    try {
+      await navigator.clipboard.writeText(payment.virtualAccountNumber);
+      setCopiedLocalAccount(true);
+      window.setTimeout(() => setCopiedLocalAccount(false), 1_500);
+    } catch {
+      setPaymentError("Copy failed. Select the account number and copy it manually.");
     }
   };
 
@@ -7927,7 +8484,7 @@ function MarketplaceConversationPage({ id }: { id: string }) {
         <PageHeader
           eyebrow="Private gig workspace"
           title="Chat and agree terms"
-          description={`Text-only conversation between ${conversation.ownerName} and ${conversation.studentName}. Funding stays locked until the student accepts the proposed terms.`}
+          description={`A private workspace for ${conversation.ownerName} and ${conversation.studentName}. Share details and files here, then agree the final terms before funding.`}
         />
         {error && (
           <div
@@ -7950,9 +8507,11 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 </span>
                 <div>
                   <h2 className="font-bold">{otherName}</h2>
-                  <p className="mt-0.5 text-xs text-muted">
-                    Selected {role === "client" ? "student" : "client"} ·
-                    refreshes automatically
+                  <p
+                    className={`mt-0.5 text-xs ${presence.online || presence.typing ? "font-semibold text-primary" : "text-muted"}`}
+                    aria-live="polite"
+                  >
+                    {presenceLabel(presence)}
                   </p>
                 </div>
               </div>
@@ -7989,14 +8548,56 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                           >
                             {mine ? "You" : message.senderName}
                           </p>
-                          <p className="mt-1 whitespace-pre-wrap break-words leading-6">
-                            {message.text}
-                          </p>
-                          <p
-                            className={`mt-2 text-[11px] ${mine ? "text-emerald-50" : "text-muted"}`}
-                          >
-                            {formatConversationTime(message.createdAt)}
-                          </p>
+                          {message.text && (
+                            <p className="mt-1 whitespace-pre-wrap break-words leading-6">
+                              {linkedMessageText(message.text, mine)}
+                            </p>
+                          )}
+                          {message.attachment && (
+                            <button
+                              type="button"
+                              className={`mt-3 flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left ${mine ? "border-white/30 bg-white/10 hover:bg-white/15" : "border-border bg-muted-surface hover:bg-slate-100"}`}
+                              onClick={() => void downloadAttachment(message)}
+                              aria-label={`Download ${message.attachment.name}`}
+                            >
+                              <FileText className="size-5 shrink-0" aria-hidden="true" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-semibold">
+                                  {message.attachment.name}
+                                </span>
+                                <span
+                                  className={`block text-xs ${mine ? "text-emerald-50" : "text-muted"}`}
+                                >
+                                  {formatFileSize(message.attachment.size)}
+                                </span>
+                              </span>
+                              <Download className="size-4 shrink-0" aria-hidden="true" />
+                            </button>
+                          )}
+                          <div className="mt-2 flex min-h-10 items-center justify-between gap-3">
+                            <p
+                              className={`text-[11px] ${mine ? "text-emerald-50" : "text-muted"}`}
+                            >
+                              {formatConversationTime(message.createdAt)}
+                            </p>
+                            {!mine && message.senderRole !== "system" && (
+                              <button
+                                type="button"
+                                className="inline-flex min-h-10 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+                                aria-label={`Report message from ${message.senderName}`}
+                                onClick={() => {
+                                  setReportingMessageId(message.id);
+                                  setReportCategory("harassment");
+                                  setReportDetails("");
+                                  setReportError("");
+                                  setReportNotice("");
+                                }}
+                              >
+                                <Flag className="size-3.5" aria-hidden="true" />
+                                Report
+                              </button>
+                            )}
+                          </div>
                         </article>
                       </div>
                     );
@@ -8005,6 +8606,99 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 </div>
               )}
             </div>
+            {reportNotice && (
+              <div
+                className="mx-4 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 sm:mx-5"
+                role="status"
+              >
+                <CheckCircle2 className="mr-2 inline size-4" aria-hidden="true" />
+                {reportNotice}
+              </div>
+            )}
+            {reportingMessageId && (
+              <form
+                className="m-4 rounded-xl border border-red-200 bg-red-50/60 p-4 sm:m-5"
+                onSubmit={submitMessageReport}
+                aria-label="Report a chat message"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold text-slate-950">Report this message</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Your report is private. The other person will not be notified while CampusGig reviews it.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="grid size-11 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-red-100 hover:text-red-800"
+                    aria-label="Close report form"
+                    onClick={() => {
+                      setReportingMessageId("");
+                      setReportError("");
+                    }}
+                    disabled={reportBusy}
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <label className="mt-4 block text-sm font-semibold" htmlFor="report-category">
+                  Reason
+                </label>
+                <select
+                  className="input mt-2"
+                  id="report-category"
+                  value={reportCategory}
+                  onChange={(event) => setReportCategory(event.target.value)}
+                  disabled={reportBusy}
+                >
+                  <option value="harassment">Harassment or threatening behaviour</option>
+                  <option value="fraud_or_scam">Fraud or scam attempt</option>
+                  <option value="payment_evasion">Request to move payment off-platform</option>
+                  <option value="unsafe_file_or_link">Unsafe file or link</option>
+                  <option value="spam">Spam</option>
+                  <option value="other">Something else</option>
+                </select>
+                <label className="mt-4 block text-sm font-semibold" htmlFor="report-details">
+                  Additional details <span className="font-normal text-muted">(optional)</span>
+                </label>
+                <textarea
+                  className="input mt-2 min-h-24 resize-y bg-white"
+                  id="report-details"
+                  value={reportDetails}
+                  onChange={(event) => setReportDetails(event.target.value.slice(0, 1_000))}
+                  placeholder="Tell the safety team what happened. Do not include passwords or private keys."
+                  maxLength={1_000}
+                  disabled={reportBusy}
+                />
+                <div className="mt-2 flex items-center justify-between gap-4 text-xs text-muted">
+                  <span>The original message and attachment metadata are preserved as evidence.</span>
+                  <span>{reportDetails.length}/1,000</span>
+                </div>
+                {reportError && (
+                  <p className="mt-3 text-sm font-medium text-red-800" role="alert">
+                    <AlertCircle className="mr-1.5 inline size-4" aria-hidden="true" />
+                    {reportError}
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap justify-end gap-3">
+                  <button
+                    type="button"
+                    className="btn btn-secondary bg-white"
+                    onClick={() => {
+                      setReportingMessageId("");
+                      setReportError("");
+                    }}
+                    disabled={reportBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn bg-red-700 text-white hover:bg-red-800" disabled={reportBusy}>
+                    {reportBusy ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Flag className="size-4" aria-hidden="true" />}
+                    {reportBusy ? "Sending report…" : "Send report"}
+                  </button>
+                </div>
+              </form>
+            )}
             <form
               className="border-t border-border p-4 sm:p-5"
               onSubmit={sendMessage}
@@ -8024,14 +8718,61 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 }
                 placeholder="Write a message…"
                 maxLength={1_000}
-                required
               />
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-xs text-muted">{messageText.length}/1,000</p>
+              {messageAttachment && (
+                <div className="mt-3 flex items-center gap-3 rounded-lg border border-border bg-muted-surface p-3">
+                  <Paperclip className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">
+                      {messageAttachment.name}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {formatFileSize(messageAttachment.size)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="grid size-11 place-items-center rounded-lg hover:bg-slate-200"
+                    onClick={() => chooseMessageAttachment()}
+                    aria-label="Remove attachment"
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {attachmentError && (
+                <p className="mt-3 text-sm font-semibold text-destructive" role="alert">
+                  {attachmentError}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <label
+                    className="btn btn-secondary cursor-pointer"
+                    htmlFor="conversation-attachment"
+                  >
+                    <Paperclip className="size-4" aria-hidden="true" />
+                    Attach file
+                  </label>
+                  <input
+                    ref={attachmentInput}
+                    className="sr-only"
+                    id="conversation-attachment"
+                    type="file"
+                    accept="application/pdf,text/plain,image/jpeg,image/png,image/webp"
+                    onChange={(event) =>
+                      chooseMessageAttachment(event.target.files?.[0])
+                    }
+                  />
+                  <p className="text-xs text-muted">
+                    {messageText.length}/1,000 · max {CHAT_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB
+                  </p>
+                </div>
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={sending || !messageText.trim()}
+                  disabled={sending || (!messageText.trim() && !messageAttachment)}
+                  aria-busy={sending}
                 >
                   {sending ? "Sending…" : "Send message"}
                 </button>
@@ -8215,10 +8956,121 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                 Funding is locked until the student accepts.
               </div>
             ) : agreement.currency !== "USDC" ? (
-              <div className="mt-6 rounded-lg bg-muted-surface p-4 text-sm leading-6 text-muted">
-                <Banknote className="mr-2 inline size-4" />
-                Local payment funding is not part of this Devnet demo.
-              </div>
+              paymentLoading ? (
+                <div className="mt-6 rounded-lg bg-muted-surface p-4 text-sm text-muted" role="status">
+                  <Clock3 className="mr-2 inline size-4 animate-spin" aria-hidden="true" />
+                  Loading bank-transfer status…
+                </div>
+              ) : payment && ["funded", "submitted", "approved", "completed"].includes(payment.status) ? (
+                <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" role="status">
+                  <p className="flex items-center gap-2 font-bold">
+                    <ShieldCheck className="size-5 text-emerald-700" aria-hidden="true" />
+                    Payment verified — work can begin
+                  </p>
+                  <p className="mt-2 text-sm leading-6">
+                    Flutterwave verified {formatAmount(agreement.amount, agreement.currency)} against this contract.
+                  </p>
+                  {payment.providerTransactionId && (
+                    <p className="mt-3 font-mono text-xs text-emerald-900">
+                      Transaction {payment.providerTransactionId}
+                    </p>
+                  )}
+                </div>
+              ) : payment?.status === "funding_pending" && payment.virtualAccountNumber ? (
+                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950" role="status">
+                  <p className="flex items-center gap-2 font-bold">
+                    <Banknote className="size-5" aria-hidden="true" />
+                    Transfer the exact amount
+                  </p>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-baseline justify-between gap-4">
+                      <dt>Amount to transfer</dt>
+                      <dd className="font-mono text-lg font-bold tabular-nums">
+                        NGN {Number(payment.providerPayableAmount || agreement.amount).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-4">
+                      <dt>Bank</dt>
+                      <dd className="font-semibold">{payment.virtualAccountBank}</dd>
+                    </div>
+                    <div>
+                      <dt>Account number</dt>
+                      <dd className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-white p-3">
+                        <span className="font-mono text-lg font-bold tracking-wider tabular-nums">
+                          {payment.virtualAccountNumber}
+                        </span>
+                        {role === "client" && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary min-h-11 bg-white"
+                            onClick={() => void copyLocalAccount()}
+                            aria-label="Copy transfer account number"
+                          >
+                            {copiedLocalAccount ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+                            {copiedLocalAccount ? "Copied" : "Copy"}
+                          </button>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  {payment.virtualAccountExpiresAt && (
+                    <p className="mt-4 text-xs leading-5">
+                      Account expires {payment.virtualAccountExpiresAt}. Confirmation is automatic after Flutterwave verifies the transfer.
+                    </p>
+                  )}
+                </div>
+              ) : payment?.status === "disputed" ? (
+                <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" role="alert">
+                  <p className="font-bold">
+                    <AlertCircle className="mr-2 inline size-5 text-red-700" aria-hidden="true" />
+                    Contract under dispute
+                  </p>
+                  <p className="mt-2 text-sm leading-6">
+                    Work approval and payout remain frozen while CampusGig reviews the contract record.
+                  </p>
+                </div>
+              ) : payment?.status === "funding_pending" ? (
+                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950" role="status">
+                  <Clock3 className="mr-2 inline size-4 animate-spin" aria-hidden="true" />
+                  Preparing a one-time transfer account…
+                </div>
+              ) : role === "client" ? (
+                <div className="mt-6 rounded-xl border border-border p-5">
+                  <p className="font-bold">Fund by NGN bank transfer</p>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    CampusGig creates a one-time Flutterwave account for this accepted contract. Payment is secured only after server-side verification.
+                  </p>
+                  <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+                    Local payout release is not enabled yet. Do not approve final release until beneficiary verification and provider payouts are active.
+                  </p>
+                  {paymentError && (
+                    <p className="mt-4 text-sm leading-6 text-red-700" role="alert">
+                      <AlertCircle className="mr-2 inline size-4" aria-hidden="true" />
+                      {paymentError}
+                    </p>
+                  )}
+                  {!paymentError && payment?.failureReason && (
+                    <p className="mt-4 text-sm leading-6 text-red-700" role="alert">
+                      <AlertCircle className="mr-2 inline size-4" aria-hidden="true" />
+                      {payment.failureReason}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-primary mt-4 w-full"
+                    onClick={() => void prepareLocalPayment()}
+                    disabled={funding}
+                    aria-busy={funding}
+                  >
+                    {funding ? "Preparing secure account…" : `Create account for ${formatAmount(agreement.amount, agreement.currency)}`}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-lg bg-primary-soft p-4 text-sm leading-6 text-secondary">
+                  <Clock3 className="mr-2 inline size-4 text-primary" aria-hidden="true" />
+                  Terms accepted. Waiting for the client to prepare and fund the bank-transfer account.
+                </div>
+              )
             ) : paymentLoading ? (
               <div className="mt-6 rounded-lg bg-muted-surface p-4 text-sm text-muted" role="status">
                 <Clock3 className="mr-2 inline size-4 animate-spin" />
@@ -8484,7 +9336,15 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                           Request changes
                         </button>
                       </div>
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      {payment.settlementMethod === "local" ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950" role="status">
+                          <p className="font-bold">NGN payout release is not active</p>
+                          <p className="mt-2 text-sm leading-6">
+                            Keep this submission in review. CampusGig will enable approval only after beneficiary verification and Flutterwave payout reconciliation are complete.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                         <p className="font-bold text-emerald-950">
                           Approve and release payment
                         </p>
@@ -8529,7 +9389,8 @@ function MarketplaceConversationPage({ id }: { id: string }) {
                         >
                           {workBusy ? "Releasing USDC…" : "Approve work and release USDC"}
                         </button>
-                      </div>
+                        </div>
+                      )}
                     </div>
                   ) : payment.status === "releasing" ? (
                     <div className="mt-4 rounded-lg bg-primary-soft p-4 text-sm leading-6 text-secondary">
@@ -9371,7 +10232,9 @@ function AdminLayout({
             </div>
           </div>
         </header>
-        <main className="p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="p-4 sm:p-6 lg:p-8" id="main-content" tabIndex={-1}>
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -9389,26 +10252,31 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     ["/admin", "Overview", LayoutDashboard],
     ["/admin/users", "Registered users", UsersRound],
     ["/admin/verifications", "Verification queue", UserCheck],
+    ["/admin/safety", "Safety reports", Flag],
     ["/admin/gigs", "Gigs & payments", BriefcaseBusiness],
     ["/admin/disputes", "Disputes", AlertCircle],
     ["/admin/security", "Account security", LockKeyhole],
   ] as const;
+  const currentSection = nav.find(([href]) => href === pathname)?.[1] ?? "Operations";
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950 lg:grid lg:grid-cols-[272px_1fr]">
-      <aside className="bg-slate-950 text-white lg:sticky lg:top-0 lg:h-screen">
-        <div className="flex h-18 items-center border-b border-white/10 px-4 lg:h-auto lg:px-6 lg:py-6">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg bg-emerald-500 text-slate-950">
-              <ShieldCheck className="size-5" />
+    <div className="min-h-screen bg-slate-50 text-slate-950 lg:grid lg:grid-cols-[288px_minmax(0,1fr)]">
+      <aside className="border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
+        <div className="flex min-h-20 items-center border-b border-white/10 px-4 lg:px-6">
+          <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview">
+            <span className="grid size-10 place-items-center rounded-lg bg-emerald-400 text-slate-950 shadow-sm">
+              <ShieldCheck className="size-5" aria-hidden="true" />
             </span>
-            <div>
-              <p className="font-bold">CampusGig</p>
-              <p className="text-xs text-slate-400">Admin console</p>
-            </div>
-          </div>
+            <span>
+              <span className="block font-bold tracking-tight">CampusGig</span>
+              <span className="mt-0.5 block text-xs font-medium text-slate-400">Operations console</span>
+            </span>
+          </Link>
         </div>
+        <p className="hidden px-7 pt-6 text-[11px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block">
+          Workspace
+        </p>
         <nav
-          className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:px-4 lg:py-6"
+          className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-1 lg:px-4 lg:py-3"
           aria-label="Admin navigation"
         >
           {nav.map(([href, label, Icon]) => {
@@ -9418,32 +10286,42 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
                 href={href}
                 key={href}
                 aria-current={active ? "page" : undefined}
-                className={`focus-ring flex min-h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-semibold ${active ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+                className={`focus-ring relative flex min-h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${active ? "bg-emerald-400/15 text-emerald-100" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
               >
-                <Icon className="size-4" />
+                {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+                <Icon className="size-4" aria-hidden="true" />
                 {label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-white/10 p-4">
-          <div className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-400">
-            <LockKeyhole className="size-4" aria-hidden="true" />
-            Restricted workspace
+        <div className="border-t border-white/10 p-4 lg:mt-auto">
+          <div className="rounded-lg bg-white/5 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+              <span className="size-2 rounded-full bg-emerald-400" aria-hidden="true" />
+              Secure session
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              Restricted to authenticated administrators.
+            </p>
           </div>
         </div>
       </aside>
       <div className="min-w-0">
-        <header className="border-b border-slate-200 bg-white">
-          <div className="flex min-h-18 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
             <div>
-              <p className="text-sm font-semibold">Operations workspace</p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Live Firebase accounts
+              <p className="text-xs font-semibold text-slate-500">
+                Admin <span className="mx-1 text-slate-300">/</span> {currentSection}
               </p>
+              <p className="mt-1 text-sm font-bold text-slate-900">Operations workspace</p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="avatar bg-slate-200 text-slate-700">
+              <span className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 md:inline-flex">
+                <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
+                Authenticated
+              </span>
+              <span className="avatar bg-slate-100 text-slate-700 ring-1 ring-slate-200">
                 {initialsFor(displayName)}
               </span>
               <div className="hidden sm:block">
@@ -9451,12 +10329,12 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
                   {displayName}
                 </p>
                 <p className="text-xs text-slate-500">
-                  Authenticated administrator
+                  Administrator
                 </p>
               </div>
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-secondary min-h-10 px-4"
                 onClick={logout}
               >
                 Log out
@@ -9464,7 +10342,13 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
-        <main className="p-4 sm:p-6 lg:p-8">{children}</main>
+        <main
+          className="mx-auto w-full max-w-screen-2xl p-4 sm:p-6 lg:p-8 xl:p-10"
+          id="main-content"
+          tabIndex={-1}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -9508,6 +10392,7 @@ type AdminOverviewMetrics = {
   activeGigs: number;
   completedGigs: number;
   disputedGigs: number;
+  openSafetyReports: number;
   dailyRegistrations: Array<{
     date: string;
     count: number;
@@ -9577,7 +10462,7 @@ function AdminOverviewPage() {
     <RealAdminLayout>
       <AdminPageHeader
         title="Marketplace overview"
-        description="Live account, verification, and gig health from Firebase. Administrator identities are excluded from member counts."
+        description="Live account, verification, and marketplace activity. Administrator identities are excluded from member counts."
         action={
           <button
             type="button"
@@ -9739,6 +10624,7 @@ function AdminOverviewPage() {
               <div className="mt-5 grid gap-3">
                 {[
                   ["Student reviews", metrics.pendingVerifications, "/admin/verifications", "amber"],
+                  ["Safety reports", metrics.openSafetyReports, "/admin/safety", "red"],
                   ["Open disputes", metrics.disputedGigs, "/admin/disputes", "red"],
                   ["Suspended users", metrics.disabledUsers, "/admin/users", "slate"],
                 ].map(([label, value, href, tone]) => (
@@ -10940,6 +11826,9 @@ type AdminGigRow = {
   paymentStatus: string;
   fundingSignature: string;
   releaseSignature: string;
+  paymentProvider: string;
+  providerTransactionId: string;
+  providerReference: string;
   createdAt: string | null;
 };
 
@@ -11095,6 +11984,16 @@ function RealAdminGigsPage() {
                           View transaction
                         </a>
                       )}
+                      {item.paymentProvider === "flutterwave" && item.providerTransactionId && (
+                        <p className="mt-1 font-mono text-xs text-slate-500">
+                          Flutterwave #{item.providerTransactionId}
+                        </p>
+                      )}
+                      {item.paymentProvider === "flutterwave" && !item.providerTransactionId && item.providerReference && (
+                        <p className="mt-1 max-w-48 truncate font-mono text-xs text-slate-500" title={item.providerReference}>
+                          {item.providerReference}
+                        </p>
+                      )}
                     </td>
                     <td className="text-xs text-slate-600">{adminDate(item.createdAt)}</td>
                   </tr>
@@ -11124,6 +12023,469 @@ type AdminDisputeRow = {
   createdAt: string | null;
   resolvedAt: string | null;
 };
+
+type AdminSafetyReport = {
+  id: string;
+  gigId: string;
+  gigTitle: string;
+  messageId: string;
+  reporterId: string;
+  reporterName: string;
+  reporterRole: string;
+  subjectUserId: string;
+  subjectName: string;
+  subjectRole: string;
+  category: string;
+  details: string;
+  priority: string;
+  status: string;
+  assignedToEmail: string;
+  resolutionAction: string;
+  resolutionNote: string;
+  accountDisabled: boolean;
+  messageEvidence: {
+    text: string;
+    sentAt: string | null;
+    attachment: {
+      name: string;
+      contentType: string;
+      size: number;
+      sha256: string;
+      scanStatus: string;
+    } | null;
+  };
+  createdAt: string | null;
+  reviewedAt: string | null;
+  resolvedAt: string | null;
+  updatedAt: string | null;
+};
+
+type AdminSafetyCounts = {
+  open: number;
+  reviewing: number;
+  resolved: number;
+  dismissed: number;
+};
+
+const SAFETY_CATEGORY_LABELS: Record<string, string> = {
+  harassment: "Harassment or threats",
+  fraud_or_scam: "Fraud or scam",
+  payment_evasion: "Off-platform payment request",
+  unsafe_file_or_link: "Unsafe file or link",
+  spam: "Spam",
+  other: "Other concern",
+};
+
+function AdminSafetyReportsPage() {
+  const { user } = useAuth();
+  const [reports, setReports] = useState<AdminSafetyReport[]>([]);
+  const [counts, setCounts] = useState<AdminSafetyCounts>({
+    open: 0,
+    reviewing: 0,
+    resolved: 0,
+    dismissed: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"active" | "resolved" | "all">("active");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [busyReportId, setBusyReportId] = useState("");
+  const [confirmSuspendId, setConfirmSuspendId] = useState("");
+
+  const loadReports = useCallback(
+    async (quiet = false) => {
+      if (!user) return;
+      if (!quiet) setLoading(true);
+      setError("");
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch("/api/admin/safety-reports", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            String(payload.error ?? "Safety reports could not be loaded."),
+          );
+        }
+        setReports(Array.isArray(payload.reports) ? payload.reports : []);
+        setCounts(
+          (payload.counts as AdminSafetyCounts | undefined) ?? {
+            open: 0,
+            reviewing: 0,
+            resolved: 0,
+            dismissed: 0,
+          },
+        );
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Safety reports could not be loaded.",
+        );
+      } finally {
+        if (!quiet) setLoading(false);
+      }
+    },
+    [user],
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadReports(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadReports]);
+
+  const visibleReports = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return reports.filter((report) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "active" && ["open", "reviewing"].includes(report.status)) ||
+        (filter === "resolved" && ["resolved", "dismissed"].includes(report.status));
+      if (!matchesFilter) return false;
+      if (!normalized) return true;
+      return [
+        report.gigTitle,
+        report.reporterName,
+        report.subjectName,
+        report.category,
+        report.messageEvidence.text,
+      ].some((value) => value.toLowerCase().includes(normalized));
+    });
+  }, [filter, query, reports]);
+
+  const updateReport = async (
+    report: AdminSafetyReport,
+    action: "review" | "resolve" | "dismiss" | "suspend",
+  ) => {
+    if (!user || busyReportId) return;
+    const resolutionNote = notes[report.id]?.trim() ?? "";
+    if (action !== "review" && resolutionNote.length < 20) {
+      setError("Add a resolution note of at least 20 characters before closing a report.");
+      return;
+    }
+    setBusyReportId(report.id);
+    setError("");
+    setNotice("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/safety-reports", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reportId: report.id, action, resolutionNote }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          String(payload.error ?? "The safety action could not be completed."),
+        );
+      }
+      const updated = payload.report as AdminSafetyReport;
+      setReports((current) =>
+        current.map((item) => (item.id === report.id ? updated : item)),
+      );
+      setConfirmSuspendId("");
+      setNotice(
+        action === "review"
+          ? `Report for ${report.subjectName} is now under review.`
+          : action === "suspend"
+            ? `${report.subjectName}'s account was suspended and the report was closed.`
+            : `The report for ${report.subjectName} was ${action === "dismiss" ? "dismissed" : "resolved"}.`,
+      );
+      await loadReports(true);
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : "The safety action could not be completed.",
+      );
+    } finally {
+      setBusyReportId("");
+    }
+  };
+
+  return (
+    <RealAdminLayout>
+      <AdminPageHeader
+        title="Safety reports"
+        description="Review reported chat evidence, document decisions, and suspend unsafe marketplace accounts. Every action is written to the administrator audit log."
+        action={
+          <button
+            type="button"
+            className="btn btn-secondary bg-white"
+            onClick={() => void loadReports()}
+            disabled={loading}
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+            Refresh
+          </button>
+        }
+      />
+
+      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Safety queue totals">
+        {[
+          ["New reports", counts.open, "Waiting for triage", "text-red-700 bg-red-50"],
+          ["Under review", counts.reviewing, "Assigned to operations", "text-amber-800 bg-amber-50"],
+          ["Resolved", counts.resolved, "Action recorded", "text-emerald-800 bg-emerald-50"],
+          ["Dismissed", counts.dismissed, "No enforcement required", "text-slate-700 bg-slate-100"],
+        ].map(([label, value, detail, tone]) => (
+          <article key={String(label)} className="rounded-xl border border-slate-200 bg-white p-5">
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+              {label}
+            </span>
+            <p className="mt-4 font-mono text-3xl font-bold">{Number(value).toLocaleString()}</p>
+            <p className="mt-2 text-xs text-slate-500">{detail}</p>
+          </article>
+        ))}
+      </section>
+
+      <div className="mt-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 sm:max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <label className="sr-only" htmlFor="safety-search">Search safety reports</label>
+          <input
+            className="input min-h-11 pl-10"
+            id="safety-search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search people, gig, category, or evidence"
+          />
+        </div>
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1" aria-label="Filter safety reports">
+          {(["active", "resolved", "all"] as const).map((option) => (
+            <button
+              type="button"
+              key={option}
+              className={`min-h-10 rounded-md px-3 text-sm font-semibold capitalize ${filter === option ? "bg-white text-slate-950 shadow-sm" : "text-slate-600 hover:text-slate-950"}`}
+              aria-pressed={filter === option}
+              onClick={() => setFilter(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {notice && (
+        <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900" role="status">
+          <CheckCircle2 className="mr-2 inline size-4" aria-hidden="true" />
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+          <AlertCircle className="mr-2 inline size-4" aria-hidden="true" />
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-12 text-center" role="status">
+          <RefreshCw className="mx-auto size-7 animate-spin text-emerald-700" aria-hidden="true" />
+          <p className="mt-4 font-semibold">Loading preserved safety evidence…</p>
+        </div>
+      ) : visibleReports.length === 0 ? (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-12 text-center">
+          <ShieldCheck className="mx-auto size-9 text-emerald-700" aria-hidden="true" />
+          <h2 className="mt-4 text-lg font-bold">No matching safety reports</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+            {reports.length === 0
+              ? "The marketplace safety queue is clear. New chat reports will appear here with preserved message evidence."
+              : "Try a different search or queue filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="mt-6 space-y-5">
+          {visibleReports.map((report) => {
+            const active = ["open", "reviewing"].includes(report.status);
+            const busy = busyReportId === report.id;
+            const confirming = confirmSuspendId === report.id;
+            return (
+              <article key={report.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <header className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${report.priority === "high" ? "bg-red-100 text-red-800" : report.priority === "medium" ? "bg-amber-100 text-amber-900" : "bg-slate-200 text-slate-700"}`}>
+                        {report.priority} priority
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${report.status === "open" ? "bg-red-100 text-red-800" : report.status === "reviewing" ? "bg-amber-100 text-amber-900" : report.status === "resolved" ? "bg-emerald-100 text-emerald-900" : "bg-slate-200 text-slate-700"}`}>
+                        {report.status}
+                      </span>
+                    </div>
+                    <h2 className="mt-3 text-lg font-bold">{SAFETY_CATEGORY_LABELS[report.category] ?? "Safety concern"}</h2>
+                    <p className="mt-1 text-sm text-slate-600">{report.gigTitle}</p>
+                  </div>
+                  <div className="text-left text-xs leading-5 text-slate-500 sm:text-right">
+                    <p>Reported {report.createdAt ? adminDate(report.createdAt) : "recently"}</p>
+                    <p className="font-mono">Case {report.id.slice(0, 10)}</p>
+                  </div>
+                </header>
+
+                <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
+                  <div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-slate-200 p-4">
+                        <p className="text-[11px] font-bold uppercase tracking-[.12em] text-slate-500">Reporter</p>
+                        <p className="mt-2 font-semibold">{report.reporterName}</p>
+                        <p className="mt-1 text-xs capitalize text-slate-500">{report.reporterRole}</p>
+                      </div>
+                      <div className="rounded-lg border border-red-200 bg-red-50/40 p-4">
+                        <p className="text-[11px] font-bold uppercase tracking-[.12em] text-red-700">Reported account</p>
+                        <p className="mt-2 font-semibold">{report.subjectName}</p>
+                        <p className="mt-1 text-xs capitalize text-slate-500">{report.subjectRole}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-slate-300 bg-slate-950 p-5 text-white">
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="text-xs font-bold uppercase tracking-[.12em] text-slate-400">Preserved message evidence</p>
+                        {report.messageEvidence.sentAt && (
+                          <p className="text-xs text-slate-400">{adminDate(report.messageEvidence.sentAt)}</p>
+                        )}
+                      </div>
+                      <blockquote className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-slate-100">
+                        {report.messageEvidence.text || "No text was included with this message."}
+                      </blockquote>
+                      {report.messageEvidence.attachment && (
+                        <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4">
+                          <div className="flex items-start gap-3">
+                            <FileText className="mt-0.5 size-5 shrink-0 text-emerald-300" aria-hidden="true" />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">{report.messageEvidence.attachment.name}</p>
+                              <p className="mt-1 text-xs leading-5 text-slate-400">
+                                {report.messageEvidence.attachment.contentType || "Unknown type"} · {formatFileSize(report.messageEvidence.attachment.size)} · scan {report.messageEvidence.attachment.scanStatus || "unknown"}
+                              </p>
+                              <p className="mt-1 truncate font-mono text-[10px] text-slate-500" title={report.messageEvidence.attachment.sha256}>
+                                SHA-256 {report.messageEvidence.attachment.sha256 || "not recorded"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {report.details && (
+                      <div className="mt-4 rounded-lg border border-slate-200 p-4">
+                        <p className="text-xs font-bold text-slate-500">Reporter context</p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{report.details}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <aside className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    {active ? (
+                      <>
+                        <h3 className="font-bold">Decision record</h3>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          Record the evidence-based reason for every terminal action. The member who reported the message receives only a generic outcome.
+                        </p>
+                        {report.status === "open" && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary mt-4 w-full bg-white"
+                            disabled={busy}
+                            onClick={() => void updateReport(report, "review")}
+                          >
+                            {busy ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <UserCheck className="size-4" aria-hidden="true" />}
+                            Start review
+                          </button>
+                        )}
+                        <label className="mt-4 block text-sm font-semibold" htmlFor={`resolution-${report.id}`}>
+                          Resolution note
+                        </label>
+                        <textarea
+                          className="input mt-2 min-h-28 resize-y bg-white"
+                          id={`resolution-${report.id}`}
+                          value={notes[report.id] ?? ""}
+                          onChange={(event) =>
+                            setNotes((current) => ({
+                              ...current,
+                              [report.id]: event.target.value.slice(0, 1_000),
+                            }))
+                          }
+                          placeholder="Summarize the evidence reviewed and why this action is proportionate."
+                          maxLength={1_000}
+                          disabled={busy}
+                        />
+                        <p className="mt-1 text-xs text-slate-500">20–1,000 characters for a closing action.</p>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void updateReport(report, "resolve")}>
+                            Resolve report
+                          </button>
+                          <button type="button" className="btn btn-secondary bg-white" disabled={busy} onClick={() => void updateReport(report, "dismiss")}>
+                            Dismiss report
+                          </button>
+                        </div>
+                        {!confirming ? (
+                          <button
+                            type="button"
+                            className="mt-4 min-h-11 w-full rounded-lg border border-red-300 bg-white px-4 text-sm font-bold text-red-800 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+                            onClick={() => setConfirmSuspendId(report.id)}
+                            disabled={busy}
+                          >
+                            Suspend reported account
+                          </button>
+                        ) : (
+                          <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4">
+                            <p className="text-sm font-bold text-red-900">Suspend {report.subjectName}?</p>
+                            <p className="mt-1 text-xs leading-5 text-red-800">
+                              Sign-in will be disabled and active sessions revoked. This does not transfer funds or decide an open payment dispute.
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button type="button" className="btn btn-secondary min-h-10 bg-white px-3" onClick={() => setConfirmSuspendId("")} disabled={busy}>
+                                Cancel
+                              </button>
+                              <button type="button" className="btn min-h-10 bg-red-700 px-3 text-white hover:bg-red-800" onClick={() => void updateReport(report, "suspend")} disabled={busy}>
+                                {busy && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
+                                Suspend and close
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className={`size-5 ${report.status === "resolved" ? "text-emerald-700" : "text-slate-500"}`} aria-hidden="true" />
+                          <h3 className="font-bold capitalize">{report.status}</h3>
+                        </div>
+                        <dl className="mt-5 space-y-4 text-sm">
+                          <div>
+                            <dt className="text-xs font-semibold text-slate-500">Action</dt>
+                            <dd className="mt-1 font-semibold capitalize">{report.resolutionAction || "Closed"}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs font-semibold text-slate-500">Administrator</dt>
+                            <dd className="mt-1 break-all">{report.assignedToEmail || "Recorded administrator"}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs font-semibold text-slate-500">Resolution note</dt>
+                            <dd className="mt-1 whitespace-pre-wrap leading-6">{report.resolutionNote || "No note recorded."}</dd>
+                          </div>
+                          {report.accountDisabled && (
+                            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-900">
+                              Account access disabled and refresh tokens revoked.
+                            </div>
+                          )}
+                        </dl>
+                      </>
+                    )}
+                  </aside>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </RealAdminLayout>
+  );
+}
 
 function RealAdminDisputesPage() {
   const { user } = useAuth();
@@ -11503,6 +12865,520 @@ function AdminGigsPage() {
   );
 }
 
+function SupportAction({
+  className = "btn btn-primary",
+  fallbackClassName = "text-sm leading-6 text-muted",
+}: {
+  className?: string;
+  fallbackClassName?: string;
+}) {
+  return SUPPORT_EMAIL ? (
+    <Link className={className} href={`mailto:${SUPPORT_EMAIL}`}>
+      <MessageSquare className="size-4" aria-hidden="true" />
+      Email support
+    </Link>
+  ) : (
+    <span className={fallbackClassName}>
+      Support contact is being configured. For account or payment issues, keep
+      the relevant gig ID and transaction reference ready.
+    </span>
+  );
+}
+
+function TrustPage() {
+  const trustAreas = [
+    {
+      id: "identity",
+      icon: BadgeCheck,
+      title: "Verified student identity",
+      copy: "Students verify a recognised school email or submit student identification for manual review. Verification confirms the evidence reviewed; it is not a guarantee of future conduct or work quality.",
+    },
+    {
+      id: "agreements",
+      icon: FileCheck2,
+      title: "Versioned work agreements",
+      copy: "The selected student and client accept the same written scope, amount, and deadline before funding. Later edits create a new version that both sides must accept again.",
+    },
+    {
+      id: "payments",
+      icon: CircleDollarSign,
+      title: "Payment evidence before work",
+      copy: "CampusGig records verified provider or network evidence before a contract becomes active. Payment state changes happen on the server and are written to an audit trail.",
+    },
+    {
+      id: "disputes",
+      icon: ShieldCheck,
+      title: "Dispute holds and review",
+      copy: "Either party can open a documented dispute. Release is frozen while the case is open, and administrators can review the agreement, conversation, delivery, and payment evidence.",
+    },
+  ];
+
+  return (
+    <AppLayout publicPage>
+      <section className="bg-ink text-white">
+        <div className="page-shell grid gap-10 py-16 lg:grid-cols-[1fr_.72fr] lg:items-end lg:py-24">
+          <div>
+            <span className="eyebrow border-white/15 bg-white/10 text-emerald-200">
+              <ShieldCheck className="size-4" aria-hidden="true" />
+              CampusGig trust centre
+            </span>
+            <h1 className="mt-6 max-w-3xl text-4xl font-bold leading-[1.02] tracking-[-0.055em] sm:text-6xl">
+              Clear safeguards, honest limits.
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+              See how identity, agreements, payments, work approval, and
+              disputes are handled—and what remains in beta.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/15 bg-white/5 p-5">
+            <p className="text-xs font-bold uppercase tracking-[.12em] text-emerald-300">
+              Current product status
+            </p>
+            <p className="mt-3 font-semibold">Public product beta</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              USDC settlement uses Solana Devnet test assets. Local NGN funding
+              is integrated, but local payout is not yet enabled. CampusGig
+              does not currently offer regulated escrow.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="page-shell py-14 sm:py-20">
+        <div className="grid gap-5 md:grid-cols-2">
+          {trustAreas.map(({ id, icon: Icon, title, copy }) => (
+            <article className="card scroll-mt-24 p-6 sm:p-7" id={id} key={id}>
+              <span className="grid size-11 place-items-center rounded-lg bg-primary-soft text-primary">
+                <Icon className="size-5" aria-hidden="true" />
+              </span>
+              <h2 className="mt-5 text-xl font-bold">{title}</h2>
+              <p className="mt-3 leading-7 text-muted">{copy}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-12 grid gap-8 rounded-2xl border border-border bg-surface p-6 sm:p-8 lg:grid-cols-[.82fr_1.18fr]">
+          <div>
+            <p className="section-kicker">Payment model</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">
+              Know what is moving—and who controls it.
+            </h2>
+          </div>
+          <div className="grid gap-6">
+            <div>
+              <h3 className="font-bold">Local NGN funding</h3>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                Flutterwave creates a transaction-specific virtual account.
+                CampusGig validates the webhook and independently verifies the
+                transaction reference, currency, status, and amount before
+                marking the gig funded. Local payout and refund automation are
+                still restricted.
+              </p>
+            </div>
+            <div className="border-t border-border pt-6">
+              <h3 className="font-bold">USDC on Solana Devnet</h3>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                The current beta uses test USDC and a CampusGig-controlled
+                signer. A program-controlled vault exists in source form but is
+                not deployed or independently audited. Never send real or
+                mainnet assets to a beta wallet address.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="mt-12 grid scroll-mt-24 gap-6 rounded-2xl bg-primary-soft p-6 sm:p-8 md:grid-cols-[1fr_auto] md:items-center"
+          id="reporting"
+        >
+          <div>
+            <p className="section-kicker">Report a concern</p>
+            <h2 className="mt-2 text-2xl font-bold">Stop first. Preserve evidence.</h2>
+            <p className="mt-3 max-w-3xl leading-7 text-muted">
+              Do not send more money or move the conversation off-platform.
+              Save the gig ID, usernames, messages, payment reference, and any
+              transaction signature. Open a dispute from the contract page for
+              an active gig; use support for account access or security issues.
+            </p>
+          </div>
+          <SupportAction className="btn btn-primary shrink-0" />
+        </div>
+      </section>
+    </AppLayout>
+  );
+}
+
+function HelpPage() {
+  const questions = [
+    [
+      "Who can post a gig?",
+      "Any verified CampusGig account can post a lawful, clearly scoped gig. Student verification is required to apply for work, not to hire.",
+    ],
+    [
+      "When should a student begin work?",
+      "Only after both parties accept the same terms and the contract page shows that payment is secured. A selection or chat message alone is not funding evidence.",
+    ],
+    [
+      "What does student verification mean?",
+      "It means CampusGig reviewed an approved school email or student document. It does not certify skills, guarantee delivery, or replace your own hiring judgment.",
+    ],
+    [
+      "What happens if the work needs changes?",
+      "The client can request a revision with specific feedback. The student can submit a new version, and the complete submission history remains attached to the contract.",
+    ],
+    [
+      "How do disputes work?",
+      "Either party can open a dispute from the funded contract. Payment release is frozen while an administrator reviews the agreement, messages, delivery, and payment records.",
+    ],
+    [
+      "Can I use real USDC?",
+      "No. The current Solana integration is on Devnet and uses test assets only. Do not send mainnet USDC, SOL, or any other real token to a CampusGig beta address.",
+    ],
+  ];
+
+  const startCards = [
+    [
+      GraduationCap,
+      "Find student work",
+      "Complete your profile, verify student status, then apply with a specific note.",
+      "/gigs",
+      "Browse gigs",
+    ],
+    [
+      BriefcaseBusiness,
+      "Hire student talent",
+      "Publish a clear brief, compare verified applicants, then agree terms before funding.",
+      "/post",
+      "Post a gig",
+    ],
+    [
+      ShieldCheck,
+      "Understand protection",
+      "Review the current identity, payment, dispute, and beta safeguards.",
+      "/trust",
+      "Open trust centre",
+    ],
+  ];
+
+  return (
+    <AppLayout publicPage>
+      <section className="border-b border-border bg-surface">
+        <div className="page-shell py-14 sm:py-20">
+          <p className="section-kicker">CampusGig help centre</p>
+          <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-[-0.055em] sm:text-5xl">
+            Get to the right next step.
+          </h1>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">
+            Plain guidance for finding work, hiring students, securing payment,
+            submitting work, and resolving problems.
+          </p>
+        </div>
+      </section>
+
+      <section className="page-shell py-12 sm:py-16">
+        <div className="grid gap-5 lg:grid-cols-3">
+          {startCards.map(([icon, title, copy, href, action]) => {
+            const Icon = icon as typeof GraduationCap;
+            return (
+              <article className="card flex flex-col p-6" key={String(title)}>
+                <span className="grid size-11 place-items-center rounded-lg bg-primary-soft text-primary">
+                  <Icon className="size-5" aria-hidden="true" />
+                </span>
+                <h2 className="mt-5 text-xl font-bold">{String(title)}</h2>
+                <p className="mt-3 flex-1 text-sm leading-6 text-muted">
+                  {String(copy)}
+                </p>
+                <Link className="text-link mt-6 inline-flex min-h-11 w-fit items-center gap-2" href={String(href)}>
+                  {String(action)}
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Link>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mx-auto mt-16 max-w-4xl">
+          <div className="text-center">
+            <p className="section-kicker">Common questions</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-[-0.04em]">
+              Answers before you commit
+            </h2>
+          </div>
+          <div className="mt-8 divide-y divide-border rounded-xl border border-border bg-surface">
+            {questions.map(([question, answer]) => (
+              <details className="group p-5 sm:p-6" key={question}>
+                <summary className="focus-ring flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 rounded-lg font-bold">
+                  {question}
+                  <ChevronRight
+                    className="size-5 shrink-0 text-muted transition-transform duration-150 group-open:rotate-90"
+                    aria-hidden="true"
+                  />
+                </summary>
+                <p className="max-w-3xl pr-8 pt-3 text-sm leading-7 text-muted">
+                  {answer}
+                </p>
+              </details>
+            ))}
+          </div>
+        </div>
+
+        <div className="mx-auto mt-16 max-w-4xl rounded-2xl bg-ink p-6 text-white sm:p-8">
+          <p className="text-xs font-bold uppercase tracking-[.12em] text-emerald-300">
+            Still need help?
+          </p>
+          <div className="mt-3 grid gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div>
+              <h2 className="text-2xl font-bold">Bring the useful details.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                Include the gig ID, your username, the payment reference, and
+                the exact step that failed. Never email a password, recovery
+                code, private key, or complete wallet secret.
+              </p>
+            </div>
+            <SupportAction
+              className="btn bg-white text-ink hover:bg-slate-100"
+              fallbackClassName="text-sm leading-6 text-slate-300"
+            />
+          </div>
+        </div>
+      </section>
+    </AppLayout>
+  );
+}
+
+type PolicySection = {
+  id: string;
+  title: string;
+  paragraphs: string[];
+  bullets?: string[];
+};
+
+function PolicyPage({
+  kind,
+}: {
+  kind: "privacy" | "terms";
+}) {
+  const isPrivacy = kind === "privacy";
+  const sections: PolicySection[] = isPrivacy
+    ? [
+        {
+          id: "scope",
+          title: "1. Scope",
+          paragraphs: [
+            "This notice explains how CampusGig handles personal information in the product beta. It applies to visitors, clients, students, and administrators who use CampusGig.",
+            "CampusGig is still preparing for commercial launch. This notice will be reviewed with qualified privacy counsel before real-money production use.",
+          ],
+        },
+        {
+          id: "data",
+          title: "2. Information we collect",
+          paragraphs: [
+            "We collect information you provide, information created through marketplace activity, and limited technical information needed to operate and protect the service.",
+          ],
+          bullets: [
+            "Account details such as name, username, email address, profile photo, country, institution, course, skills, and portfolio links.",
+            "Verification evidence such as school email status, student identification images, and administrator review decisions.",
+            "Marketplace records such as gigs, applications, messages, accepted terms, submissions, feedback, ratings, disputes, and notifications.",
+            "Payment metadata such as provider references, transaction signatures, wallet addresses, amounts, currencies, and settlement states. CampusGig should not receive your card PIN or online-banking password.",
+            "Security and operational data such as timestamps, authentication events, rate-limit records, and technical error context.",
+          ],
+        },
+        {
+          id: "use",
+          title: "3. How we use information",
+          paragraphs: [
+            "We use information to provide accounts, verify student status, run the marketplace, secure payments, prevent abuse, support users, resolve disputes, maintain audit records, and improve reliability.",
+            "We do not sell personal information. We do not use student identification documents for advertising.",
+          ],
+        },
+        {
+          id: "sharing",
+          title: "4. When information is shared",
+          paragraphs: [
+            "Profile and marketplace information is shared only as needed for the service. For example, clients see applicant profiles, and selected parties see their contract conversation and delivery records.",
+            "Service providers may process information on our behalf, including Firebase and Google Cloud for identity and data, Vercel for hosting, Resend for email, Flutterwave for supported local payment collection, and Solana infrastructure for public Devnet transaction records.",
+          ],
+        },
+        {
+          id: "blockchain",
+          title: "5. Blockchain records",
+          paragraphs: [
+            "Wallet addresses, transaction signatures, token movements, and program interactions written to Solana are public and may be permanent. Do not place personal information in a blockchain transaction memo or public address label.",
+          ],
+        },
+        {
+          id: "retention",
+          title: "6. Retention and deletion",
+          paragraphs: [
+            "We retain information for as long as needed to provide the service, protect users, meet legal or accounting obligations, resolve disputes, and preserve payment audit records. Retention periods will be formalised before commercial launch.",
+            "Depending on applicable law, you may request access, correction, or deletion. Some contract, safety, fraud-prevention, and transaction records may need to be retained.",
+          ],
+        },
+        {
+          id: "security",
+          title: "7. Security",
+          paragraphs: [
+            "CampusGig uses access controls, server-side authorization, encrypted wallet-secret storage, audit records, rate limits, webhook verification, and transaction re-verification. No system is risk-free, and the current beta is not approved for real assets.",
+          ],
+        },
+        {
+          id: "contact",
+          title: "8. Contact and updates",
+          paragraphs: [
+            "We may update this notice as the product, providers, and legal obligations change. Material changes will be presented in the product before they take effect.",
+          ],
+        },
+      ]
+    : [
+        {
+          id: "agreement",
+          title: "1. Agreement and beta status",
+          paragraphs: [
+            "These terms govern use of the CampusGig product beta. By creating an account or using the service, you agree to these terms and the Privacy Notice.",
+            "The beta is for testing and evaluation. Solana features use Devnet test assets only. Do not deposit real or mainnet assets. These terms require review by qualified counsel before commercial launch.",
+          ],
+        },
+        {
+          id: "eligibility",
+          title: "2. Eligibility and accounts",
+          paragraphs: [
+            "You must be able to form a binding agreement where you live and must provide accurate account information. Users under 18 may not use payment features unless CampusGig has introduced a legally reviewed guardian flow.",
+            "Keep credentials and recovery methods secure. You are responsible for activity performed through your account unless you promptly report unauthorised access.",
+          ],
+        },
+        {
+          id: "marketplace",
+          title: "3. Marketplace roles",
+          paragraphs: [
+            "Clients are responsible for lawful, accurate gig descriptions and timely review. Students are responsible for truthful profiles, appropriate applications, and original work that meets the accepted terms.",
+            "CampusGig provides marketplace, identity-review, communication, and payment-state infrastructure. CampusGig is not an employer, university, agent, or guarantor of a user's conduct, skills, or work quality.",
+          ],
+        },
+        {
+          id: "contracts",
+          title: "4. Gig agreements",
+          paragraphs: [
+            "A gig contract is formed between the client and selected student when both accept the same version of the scope, amount, currency, and deadline. Do not begin paid work until CampusGig shows payment as secured.",
+            "Changes to material terms require a new accepted version. Keep project communication and delivery evidence on CampusGig so it can be reviewed if a dispute occurs.",
+          ],
+        },
+        {
+          id: "payments",
+          title: "5. Payments, fees, and release",
+          paragraphs: [
+            "Available payment methods depend on the gig country and product stage. Fees and settlement amounts are shown before funding or release. Provider and blockchain fees may also apply.",
+            "The current local NGN integration supports verified funding only; automated local payout and refund are not enabled. The current USDC flow is custodial on Devnet and remains part of the CampusGig trust model. Neither flow should be described as regulated escrow.",
+          ],
+        },
+        {
+          id: "conduct",
+          title: "6. Prohibited conduct",
+          paragraphs: [
+            "You may not use CampusGig for fraud, money laundering, sanctions evasion, impersonation, harassment, academic cheating, unlawful goods or services, malware, credential theft, payment circumvention, or infringement of another person's rights.",
+            "Do not move payment off-platform to avoid safeguards or fees, and never request another user's password, one-time code, wallet secret, or private key.",
+          ],
+        },
+        {
+          id: "disputes",
+          title: "7. Disputes and account action",
+          paragraphs: [
+            "Either contract party may open a dispute with a specific description and supporting evidence. CampusGig may pause release, request more information, restrict features, suspend accounts, or preserve records while reviewing safety, fraud, or legal concerns.",
+            "Detailed refund, appeal, governing-law, and formal dispute-resolution rules must be finalised before commercial launch.",
+          ],
+        },
+        {
+          id: "risk",
+          title: "8. Beta risk and limitations",
+          paragraphs: [
+            "The beta may change, become unavailable, or contain defects. Test data may be reset. To the extent permitted by law, the beta is provided without commercial-service warranties. Nothing in these terms excludes rights that cannot legally be excluded.",
+          ],
+        },
+        {
+          id: "contact",
+          title: "9. Contact and changes",
+          paragraphs: [
+            "We may update these beta terms as the product and legal model develop. Material changes will be presented before they take effect.",
+          ],
+        },
+      ];
+
+  return (
+    <AppLayout publicPage>
+      <section className="border-b border-border bg-surface">
+        <div className="page-shell py-12 sm:py-16">
+          <p className="section-kicker">CampusGig legal</p>
+          <h1 className="mt-3 text-4xl font-bold tracking-[-0.05em]">
+            {isPrivacy ? "Privacy notice" : "Beta terms of use"}
+          </h1>
+          <p className="mt-4 max-w-3xl leading-7 text-muted">
+            {isPrivacy
+              ? "Plain-language information about the data CampusGig uses to operate, protect, and improve the student freelance marketplace."
+              : "The rules and current product boundaries for clients, students, and administrators using the CampusGig beta."}
+          </p>
+          <p className="mt-4 font-mono text-xs text-muted">
+            Effective 26 September 2026 · Product beta
+          </p>
+        </div>
+      </section>
+
+      <section className="page-shell py-10 sm:py-14">
+        <div className="grid gap-10 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="self-start lg:sticky lg:top-24">
+            <nav className="rounded-xl border border-border bg-surface p-4" aria-label="On this page">
+              <p className="px-2 text-xs font-bold uppercase tracking-[.1em] text-muted">
+                On this page
+              </p>
+              <div className="mt-3 grid gap-1">
+                {sections.map((section) => (
+                  <Link
+                    className="focus-ring min-h-10 rounded-lg px-2 py-2 text-sm font-semibold text-secondary hover:bg-muted-surface hover:text-primary"
+                    href={`#${section.id}`}
+                    key={section.id}
+                  >
+                    {section.title}
+                  </Link>
+                ))}
+              </div>
+            </nav>
+          </aside>
+          <div className="min-w-0">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950" role="note">
+              <strong>Launch review required.</strong> These beta policies
+              describe the current product honestly, but they are not a
+              substitute for jurisdiction-specific legal, privacy, payments,
+              tax, employment, or consumer-protection advice.
+            </div>
+            <div className="mt-8 divide-y divide-border rounded-xl border border-border bg-surface px-6 sm:px-8">
+              {sections.map((section) => (
+                <article className="scroll-mt-24 py-8" id={section.id} key={section.id}>
+                  <h2 className="text-xl font-bold">{section.title}</h2>
+                  <div className="mt-4 max-w-prose space-y-4 text-sm leading-7 text-muted">
+                    {section.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                    {section.bullets && (
+                      <ul className="list-disc space-y-2 pl-5">
+                        {section.bullets.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {section.id === "contact" && (
+                      <div className="pt-2">
+                        <SupportAction className="btn btn-secondary" />
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </AppLayout>
+  );
+}
+
 function PlaceholderPage({ route }: { route: string[] }) {
   return (
     <AppLayout>
@@ -11511,15 +13387,25 @@ function PlaceholderPage({ route }: { route: string[] }) {
         data-unavailable-route={route.join("/")}
       >
         <div className="card mx-auto max-w-xl p-8 text-center">
-          <Sparkles className="mx-auto size-8 text-primary" />
-          <h1 className="mt-5 text-2xl font-bold">CampusGig workspace</h1>
-          <p className="mt-3 text-muted">
-            This area is not available yet. Return home to continue through
-            CampusGig.
+          <AlertCircle className="mx-auto size-8 text-primary" />
+          <p className="mt-5 text-sm font-bold uppercase tracking-[.1em] text-primary">
+            Error 404
           </p>
-          <Link href="/" className="btn btn-secondary mt-6">
-            Back home
-          </Link>
+          <h1 className="mt-2 text-3xl font-bold tracking-[-0.04em]">
+            Page not found
+          </h1>
+          <p className="mx-auto mt-3 max-w-md leading-7 text-muted">
+            The address may be outdated or the page may have moved. Browse
+            current gigs or visit the help centre to find your way back.
+          </p>
+          <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link href="/gigs" className="btn btn-primary">
+              Browse gigs
+            </Link>
+            <Link href="/help" className="btn btn-secondary">
+              Help centre
+            </Link>
+          </div>
         </div>
       </section>
     </AppLayout>
@@ -11720,6 +13606,10 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (path === "login") page = <LoginPage />;
   else if (path === "forgot-password") page = <ForgotPasswordPage />;
   else if (path === "verify-email") page = <VerifyEmailPage />;
+  else if (path === "trust") page = <TrustPage />;
+  else if (path === "help") page = <HelpPage />;
+  else if (path === "terms") page = <PolicyPage kind="terms" />;
+  else if (path === "privacy") page = <PolicyPage kind="privacy" />;
   else if (path === "admin/signup") page = <AdminSignupPage />;
   else if (path === "admin/login") page = <AdminLoginPage />;
   else if (path === "admin/forgot-password") page = <ForgotPasswordPage admin />;
@@ -11745,6 +13635,7 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (path === "admin") page = <AdminOverviewPage />;
   else if (path === "admin/users") page = <AdminUsersPage />;
   else if (path === "admin/verifications") page = <RealVerificationQueuePage />;
+  else if (path === "admin/safety") page = <AdminSafetyReportsPage />;
   else if (path === "admin/gigs") page = <RealAdminGigsPage />;
   else if (path === "admin/disputes") page = <RealAdminDisputesPage />;
   else if (path === "admin/security") page = <PasswordSecurityPage admin />;
@@ -11770,6 +13661,7 @@ function CampusGigRouter({ route }: RouteProps) {
     "admin",
     "admin/users",
     "admin/verifications",
+    "admin/safety",
     "admin/gigs",
     "admin/disputes",
     "admin/security",

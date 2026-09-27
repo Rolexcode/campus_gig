@@ -32,6 +32,10 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if false;
       }
+
+      match /presence/{userId} {
+        allow read, write: if false;
+      }
     }
 
     // Custodial wallet secrets are server-only. The public address is stored
@@ -46,6 +50,10 @@ service cloud.firestore {
     }
 
     match /paymentWalletKeys/{gigId} {
+      allow read, write: if false;
+    }
+
+    match /paymentProviderEvents/{eventId} {
       allow read, write: if false;
     }
 

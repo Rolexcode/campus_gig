@@ -8,6 +8,7 @@ import {
 } from "@/app/lib/gigs";
 import { gigStatus } from "@/app/lib/gig-contracts";
 import { writeGigEvent } from "@/app/lib/gig-audit";
+import { withApiObservability } from "@/app/lib/observability";
 import {
   apiErrorResponse,
   ApiAuthError,
@@ -104,7 +105,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function postGig(request: Request) {
   try {
     const decoded = await requireMarketplaceUser(request);
     const body = await request.json().catch(() => ({}));
@@ -228,3 +229,5 @@ export async function POST(request: Request) {
     return apiErrorResponse(error);
   }
 }
+
+export const POST = withApiObservability("/api/gigs", postGig);

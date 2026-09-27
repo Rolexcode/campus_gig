@@ -123,7 +123,8 @@ coverage-only assurance.
 **Category:** software supply chain
 **Priority:** P1
 
-`npm audit --omit=dev` reports three high and twelve moderate transitive
+After safe transitive updates and the React 19.3 security update,
+`npm audit --omit=dev` reports three high and six moderate transitive
 advisories, including `bigint-buffer` through the Solana 1.x stack. npm's offered
 forced fix downgrades to incompatible legacy packages and must not be applied.
 Migrate the payment client to the maintained Solana Kit dependency line, remove
@@ -162,16 +163,35 @@ status, or a crash between confirmation and Firestore commit. Add an idempotent
 reconciliation worker that treats chain state as authoritative, alerts on ledger
 drift, and quarantines ambiguous payments.
 
-### [LOW] CG-SEC-012 — CSP is not yet enforced
+### [LOW] CG-SEC-012 — enforced CSP still permits inline scripts
 
 **Confidence:** 8/10
 **Category:** browser hardening
 **Priority:** P2
 
-HSTS, frame denial, MIME sniffing protection, referrer policy, COOP, and a strict
-Permissions Policy are present. Add a nonce-based Content Security Policy after
-removing the remaining inline-script dependency; deploy it in report-only mode
-first to avoid breaking Firebase/Next.js flows.
+HSTS, frame denial, MIME sniffing protection, referrer policy, COOP, a strict
+Permissions Policy, and an enforced origin-restricted CSP are present. The policy
+still permits inline scripts for compatibility with the current Next.js rendering
+path. Move to per-request nonces after removing that dependency; validate the
+nonce policy in report-only mode before enforcement to avoid breaking
+Firebase/Next.js flows.
+
+### [MEDIUM] CG-SEC-013 — managed attachment scanner deployment required
+
+**Confidence:** 9/10
+**Category:** untrusted file processing
+**Priority:** P1 before public scale
+
+The application now quarantines every upload, fails closed without a configured
+HTTPS scanner, requires a traceable clean verdict for the exact SHA-256 payload,
+copies only clean files to the participant-authorized download namespace, and
+automatically deletes abandoned quarantine objects through an authenticated
+daily retention job. Deployment still requires an approved managed scanner,
+availability alerts, and vendor/privacy review before increasing limits or
+supporting more file types. The user-facing abuse workflow is now implemented:
+participants can privately report a specific message, immutable text and file
+metadata are preserved for administrator review, terminal decisions are audited,
+and suspension disables Firebase Auth access and revokes refresh tokens.
 
 ## Verified controls
 
@@ -202,7 +222,7 @@ first to avoid breaking Firebase/Next.js flows.
 ## Confidence calibration
 
 - Fixed findings: 5 (high: 2, medium: 3)
-- Open findings: 7 (high: 4, medium: 2, low: 1)
+- Open findings: 8 (high: 4, medium: 3, low: 1)
 - Critical: 0
 - False positives filtered: generated build metadata, test-only `unwrap`, example
   environment placeholders, and public PDA/program addresses

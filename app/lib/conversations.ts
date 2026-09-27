@@ -53,12 +53,22 @@ export function messageValue(
     data.senderRole === "client" || data.senderRole === "student"
       ? data.senderRole
       : "system";
+  const rawAttachment = data.attachment as Record<string, unknown> | undefined;
+  const attachment =
+    rawAttachment?.storagePath && rawAttachment.scanStatus === "clean"
+    ? {
+        name: String(rawAttachment.name ?? "Attachment"),
+        size: Number(rawAttachment.size ?? 0),
+        contentType: String(rawAttachment.contentType ?? "application/octet-stream"),
+      }
+    : undefined;
   return {
     id,
     senderId: String(data.senderId ?? ""),
     senderName: String(data.senderName ?? "CampusGig"),
     senderRole: role,
     text: String(data.text ?? ""),
+    attachment,
     createdAt: dateValue(data.createdAt),
   };
 }

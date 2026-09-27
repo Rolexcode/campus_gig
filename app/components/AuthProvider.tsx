@@ -33,6 +33,10 @@ import {
   firebaseConfigurationMessage,
   getFirebaseServices,
 } from "@/app/lib/firebase-client";
+import {
+  portfolioLinksFromProfile,
+  type PortfolioLink,
+} from "@/app/lib/profile-details";
 
 export type VerificationStatus = "unsubmitted" | "pending" | "approved" | "rejected";
 
@@ -55,6 +59,9 @@ export type UserProfile = {
   linkedIn?: string;
   gitHub?: string;
   availability?: string;
+  yearsExperience?: number | null;
+  languages?: string;
+  portfolioLinks?: PortfolioLink[];
   photoName?: string;
   photoDataUrl?: string;
   verificationMethod?: "school-email" | "student-id";
@@ -81,6 +88,9 @@ export type EditableProfile = Pick<
   | "linkedIn"
   | "gitHub"
   | "availability"
+  | "yearsExperience"
+  | "languages"
+  | "portfolioLinks"
   | "photoName"
   | "photoDataUrl"
 >;
@@ -125,6 +135,12 @@ function profileFromData(data: Record<string, unknown>): UserProfile {
     linkedIn: String(data.linkedIn ?? ""),
     gitHub: String(data.gitHub ?? ""),
     availability: String(data.availability ?? ""),
+    yearsExperience:
+      Number.isInteger(Number(data.yearsExperience)) && Number(data.yearsExperience) >= 0
+        ? Number(data.yearsExperience)
+        : null,
+    languages: String(data.languages ?? ""),
+    portfolioLinks: portfolioLinksFromProfile(data),
     photoName: String(data.photoName ?? ""),
     photoDataUrl: String(data.photoDataUrl ?? ""),
     verificationMethod: data.verificationMethod === "school-email" || data.verificationMethod === "student-id"
@@ -151,7 +167,7 @@ export function firebaseErrorMessage(error: unknown) {
     "auth/user-disabled": "This account has been suspended. Contact CampusGig support.",
     "auth/invalid-email": "Enter a valid email address.",
     "auth/missing-password": "Enter your password.",
-    "auth/network-request-failed": "We could not reach Firebase. Check your connection and try again.",
+    "auth/network-request-failed": "We could not reach CampusGig. Check your connection and try again.",
     "auth/too-many-requests": "Too many attempts. Wait a moment and try again.",
     "auth/requires-recent-login": "For your security, log in again before changing your password.",
     "auth/wrong-password": "Your current password is incorrect.",
@@ -376,7 +392,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const saveProfile = useCallback(async (values: EditableProfile) => {
     if (!user) throw new Error("Log in before updating your profile.");
     const cleanValues = Object.fromEntries(
-      Object.entries(values).map(([key, value]) => [key, value?.trim?.() ?? value]),
+      Object.entries(values).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value.trim() : value,
+      ]),
     ) as EditableProfile;
     const token = await user.getIdToken();
     const response = await fetch("/api/profile", {

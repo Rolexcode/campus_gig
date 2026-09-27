@@ -38,9 +38,9 @@ needed to confirm the report.
 
 ## Dependency posture
 
-CI should run `npm audit`, tests, lint, and a production build. The current
-Solana 1.x and Firebase Admin dependency trees include published transitive
-advisories for `bigint-buffer` and `uuid`. npm's automatic forced remediation
+CI runs `npm audit`, unit tests, lint, a production build, and desktop/mobile
+browser checks. The current Solana 1.x dependency tree includes published
+transitive advisories for `bigint-buffer`, `stream-json`, and `uuid`. npm's automatic forced remediation
 would install incompatible legacy Solana versions, so it must not be used.
 Before a mainnet launch, migrate to patched upstream dependency lines or
 replace the affected transaction stack, then repeat the security review.

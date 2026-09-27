@@ -1,6 +1,16 @@
 import { FirebaseApp, getApp, getApps, initializeApp } from "firebase/app";
-import { Auth, browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
-import { Firestore, getFirestore } from "firebase/firestore";
+import {
+  Auth,
+  browserLocalPersistence,
+  connectAuthEmulator,
+  getAuth,
+  setPersistence,
+} from "firebase/auth";
+import {
+  connectFirestoreEmulator,
+  Firestore,
+  getFirestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -28,6 +38,11 @@ export type FirebaseServices = {
 };
 
 let servicesPromise: Promise<FirebaseServices> | null = null;
+let emulatorsConnected = false;
+
+function shouldUseFirebaseEmulators() {
+  return process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
+}
 
 export function isFirebaseConfigured() {
   return requiredConfig.every(Boolean);
@@ -42,8 +57,23 @@ export function getFirebaseServices(): Promise<FirebaseServices> {
     servicesPromise = (async () => {
       const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
       const auth = getAuth(app);
+      const db = getFirestore(app);
+      if (shouldUseFirebaseEmulators() && !emulatorsConnected) {
+        connectAuthEmulator(
+          auth,
+          process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL ??
+            "http://127.0.0.1:9099",
+          { disableWarnings: true },
+        );
+        connectFirestoreEmulator(
+          db,
+          process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST ?? "127.0.0.1",
+          Number(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT ?? "8080"),
+        );
+        emulatorsConnected = true;
+      }
       await setPersistence(auth, browserLocalPersistence);
-      return { app, auth, db: getFirestore(app) };
+      return { app, auth, db };
     })();
   }
 

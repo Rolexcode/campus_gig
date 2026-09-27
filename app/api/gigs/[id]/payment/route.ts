@@ -20,6 +20,7 @@ import {
   programEscrowModeEnabled,
 } from "@/app/lib/program-escrow";
 import { assertPaymentsActive } from "@/app/lib/payment-controls";
+import { withApiObservability } from "@/app/lib/observability";
 import { enforceServerRateLimit } from "@/app/lib/server-rate-limit";
 import {
   broadcastFundingTransaction,
@@ -142,10 +143,7 @@ async function responseForPayment(
   clientId: string,
   requesterId: string,
 ) {
-  const [paymentSnapshot, walletSnapshot] = await Promise.all([
-    adminDb.collection("gigPayments").doc(gigId).get(),
-    adminDb.collection("walletKeys").doc(clientId).get(),
-  ]);
+  const paymentSnapshot = await adminDb.collection("gigPayments").doc(gigId).get();
   if (!paymentSnapshot.exists) {
     return Response.json({
       payment: null,
@@ -153,6 +151,15 @@ async function responseForPayment(
     });
   }
   const payload = publicPaymentPayload(paymentSnapshot.data() ?? {});
+  if (payload.payment.settlementMethod === "local") {
+    return Response.json({
+      ...payload,
+      clientWalletAddress: "",
+      clientUsdcBalance: "",
+      feeSponsorshipAvailable: false,
+    });
+  }
+  const walletSnapshot = await adminDb.collection("walletKeys").doc(clientId).get();
   let clientUsdcBalance = "";
   let clientWalletAddress = "";
   if (requesterId === clientId && walletSnapshot.exists) {
@@ -190,6 +197,7 @@ export async function GET(
     const signature = String(paymentData.fundingSignature ?? "");
     if (
       paymentSnapshot.exists &&
+      String(paymentData.settlementMethod ?? "") !== "local" &&
       String(paymentData.status ?? "") === "funding_pending" &&
       signature &&
       (await fundingSignatureIsConfirmed(signature))
@@ -207,7 +215,7 @@ export async function GET(
   }
 }
 
-export async function POST(
+async function fundPayment(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -518,3 +526,8 @@ export async function POST(
     return apiErrorResponse(error);
   }
 }
+
+export const POST = withApiObservability(
+  "/api/gigs/[id]/payment",
+  fundPayment,
+);

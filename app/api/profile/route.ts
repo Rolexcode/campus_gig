@@ -2,6 +2,10 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
 import { ApiAuthError, apiErrorResponse, requireFirebaseUser } from "@/app/lib/server-auth";
 import { validatedUsername } from "@/app/lib/usernames";
+import {
+  normalizePortfolioLinks,
+  normalizeYearsExperience,
+} from "@/app/lib/profile-details";
 
 export const runtime = "nodejs";
 
@@ -18,6 +22,7 @@ const fieldLimits: Record<string, number> = {
   gitHub: 500,
   availability: 120,
   photoName: 160,
+  languages: 300,
 };
 
 export async function POST(request: Request) {
@@ -40,17 +45,26 @@ export async function POST(request: Request) {
     }
 
     if (!profile.fullName) return Response.json({ error: "Add your display name." }, { status: 400 });
-    for (const field of ["portfolio", "linkedIn", "gitHub"] as const) {
-      if (!profile[field]) continue;
-      try {
-        const url = new URL(profile[field]);
-        if (url.protocol !== "https:") throw new Error("Unsupported URL protocol");
-      } catch {
-        return Response.json(
-          { error: `${field} must be a complete https:// URL.` },
-          { status: 400 },
-        );
-      }
+    const requestedLinks = Array.isArray(body.portfolioLinks)
+      ? body.portfolioLinks
+      : [
+          { label: "Portfolio", url: profile.portfolio },
+          { label: "LinkedIn", url: profile.linkedIn },
+          { label: "GitHub", url: profile.gitHub },
+        ].filter((item) => item.url);
+    const portfolioLinks = normalizePortfolioLinks(requestedLinks);
+    if (requestedLinks.length !== portfolioLinks.length) {
+      return Response.json(
+        { error: "Each work link must be a unique, complete HTTPS address." },
+        { status: 400 },
+      );
+    }
+    const yearsExperience = normalizeYearsExperience(body.yearsExperience ?? 0);
+    if (yearsExperience === null) {
+      return Response.json(
+        { error: "Years of experience must be a whole number from 0 to 50." },
+        { status: 400 },
+      );
     }
     const photoDataUrl = String(body.photoDataUrl ?? "");
     if (photoDataUrl && !/^data:image\/jpeg;base64,/.test(photoDataUrl)) {
@@ -82,6 +96,8 @@ export async function POST(request: Request) {
       }, { merge: true });
       transaction.set(profileReference, {
         ...profile,
+        portfolioLinks,
+        yearsExperience,
         username,
         usernameNormalized: username,
         photoDataUrl,
@@ -91,7 +107,17 @@ export async function POST(request: Request) {
     });
     await adminAuth.updateUser(decoded.uid, { displayName: profile.fullName });
 
-    return Response.json({ saved: true, profile: { ...profile, username, photoDataUrl, onboardingComplete: true } });
+    return Response.json({
+      saved: true,
+      profile: {
+        ...profile,
+        portfolioLinks,
+        yearsExperience,
+        username,
+        photoDataUrl,
+        onboardingComplete: true,
+      },
+    });
   } catch (error) {
     return apiErrorResponse(error);
   }

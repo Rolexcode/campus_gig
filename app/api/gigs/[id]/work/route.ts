@@ -92,7 +92,10 @@ export async function POST(
       if (String(gig.selectedApplicantId ?? "") !== decoded.uid) {
         throw new ApiAuthError("You are not the selected student for this gig.", 403);
       }
-      if (!String(payment.fundingSignature ?? "") || String(payment.status ?? "") !== "funded") {
+      const fundingEvidence =
+        String(payment.fundingSignature ?? "") ||
+        String(payment.providerTransactionId ?? "");
+      if (!fundingEvidence || String(payment.status ?? "") !== "funded") {
         throw new ApiAuthError("Work can only be submitted after payment is secured.", 409);
       }
       const currentStatus = gigStatus(gig.status);

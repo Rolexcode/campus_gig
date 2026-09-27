@@ -22,10 +22,17 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: "21"
       - run: npm ci
       - run: npm test
       - run: npm run lint
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:run
+      - run: npm run test:e2e:authenticated
       - run: npm audit --omit=dev --audit-level=critical
 
   escrow-program:

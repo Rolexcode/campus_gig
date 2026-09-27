@@ -8,6 +8,7 @@ import { writeGigEvent } from "@/app/lib/gig-audit";
 import { writeUserNotification } from "@/app/lib/user-notifications";
 import { assertGigTransition, gigStatus } from "@/app/lib/gig-contracts";
 import { assertPaymentsActive } from "@/app/lib/payment-controls";
+import { withApiObservability } from "@/app/lib/observability";
 import { paymentValue, usdcDisplayAmount } from "@/app/lib/payments";
 import { releaseAllocation } from "@/app/lib/release-allocation";
 import {
@@ -200,7 +201,7 @@ async function finalizeRelease({
   });
 }
 
-export async function POST(
+async function approveWork(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -221,6 +222,14 @@ export async function POST(
     const access = await requireConversationAccess(adminDb, id, decoded.uid);
     if (decoded.uid !== access.conversation.ownerId) {
       throw new ApiAuthError("Only the gig client can approve and release payment.", 403);
+    }
+
+    const currentPaymentSnapshot = await adminDb.collection("gigPayments").doc(id).get();
+    if (String(currentPaymentSnapshot.data()?.settlementMethod ?? "") === "local") {
+      throw new ApiAuthError(
+        "NGN payout release is not enabled yet. Keep the work in review until the verified beneficiary and provider-payout flow is available.",
+        409,
+      );
     }
 
     const paymentReference = adminDb.collection("gigPayments").doc(id);
@@ -251,6 +260,12 @@ export async function POST(
       const submission = submissionSnapshot.data() ?? {};
       if (String(gig.ownerId ?? "") !== decoded.uid) {
         throw new ApiAuthError("Only the gig owner can approve this work.", 403);
+      }
+      if (String(payment.settlementMethod ?? "") === "local") {
+        throw new ApiAuthError(
+          "NGN payout release is not enabled yet. Keep the work in review until the verified beneficiary and provider-payout flow is available.",
+          409,
+        );
       }
       if (String(payment.status ?? "") === "completed") {
         return { kind: "completed" as const };
@@ -431,3 +446,8 @@ export async function POST(
     return apiErrorResponse(error);
   }
 }
+
+export const POST = withApiObservability(
+  "/api/gigs/[id]/work/approve",
+  approveWork,
+);

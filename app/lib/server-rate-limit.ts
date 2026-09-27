@@ -35,12 +35,14 @@ export async function enforceServerRateLimit({
   key,
   limit,
   windowMs,
+  errorMessage = "Too many payment requests. Wait a few minutes before trying again.",
 }: {
   adminDb: AdminDb;
   bucket: string;
   key: string;
   limit: number;
   windowMs: number;
+  errorMessage?: string;
 }) {
   const id = createHash("sha256").update(`${bucket}:${key}`).digest("hex");
   const reference = adminDb.collection("serverRateLimits").doc(id);
@@ -71,9 +73,6 @@ export async function enforceServerRateLimit({
   });
 
   if (!allowed) {
-    throw new ApiAuthError(
-      "Too many payment requests. Wait a few minutes before trying again.",
-      429,
-    );
+    throw new ApiAuthError(errorMessage, 429);
   }
 }

@@ -50,6 +50,9 @@ export async function GET(request: Request) {
         paymentStatus: String(payment.status ?? data.paymentStatus ?? ""),
         fundingSignature: String(payment.fundingSignature ?? ""),
         releaseSignature: String(payment.releaseSignature ?? ""),
+        paymentProvider: String(payment.provider ?? ""),
+        providerTransactionId: String(payment.providerTransactionId ?? ""),
+        providerReference: String(payment.providerReference ?? ""),
         createdAt: dateValue(data.createdAt),
         updatedAt: dateValue(data.updatedAt),
       };

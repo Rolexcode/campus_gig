@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AuthProvider } from "./components/AuthProvider";
 import "./globals.css";
 
@@ -32,5 +34,16 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${geistSans.variable} ${geistMono.variable} antialiased`}><AuthProvider>{children}</AuthProvider></body></html>;
+  return (
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
+        <AuthProvider>{children}</AuthProvider>
+        <Analytics />
+        <SpeedInsights />
+      </body>
+    </html>
+  );
 }

@@ -44,6 +44,7 @@ button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .62; }
 
 @layer components {
+  .skip-link { @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-lg bg-ink px-4 py-3 text-sm font-bold text-white shadow-lg outline-none transition-transform focus-visible:translate-y-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
   .page-shell { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
   .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
   .btn { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-5 text-sm font-bold transition-colors outline-none active:translate-y-px focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
@@ -84,6 +85,7 @@ button:disabled { cursor: not-allowed; opacity: .62; }
   .data-table th { @apply border-b border-border bg-muted-surface px-4 py-3 text-xs font-bold uppercase tracking-[.06em] text-muted; }
   .data-table td { @apply border-b border-border px-4 py-4 align-middle; }
   .data-table tr:last-child td { @apply border-b-0; }
+  .data-table tbody tr { @apply transition-colors hover:bg-slate-50; }
 }
 
 .hero-grid { background-image: linear-gradient(to right, rgba(8,122,85,.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(8,122,85,.045) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(to bottom right, black, transparent 76%); }

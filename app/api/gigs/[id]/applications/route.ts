@@ -4,6 +4,7 @@ import type { MarketplaceApplication } from "@/app/lib/gigs";
 import { writeGigEvent } from "@/app/lib/gig-audit";
 import { writeUserNotification } from "@/app/lib/user-notifications";
 import { apiErrorResponse, ApiAuthError, requireMarketplaceUser } from "@/app/lib/server-auth";
+import { portfolioLinksFromProfile } from "@/app/lib/profile-details";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,13 @@ function profileValue(data: Record<string, unknown>) {
     linkedIn: String(data.linkedIn ?? ""),
     gitHub: String(data.gitHub ?? ""),
     availability: String(data.availability ?? ""),
+    country: String(data.country ?? ""),
+    yearsExperience:
+      Number.isInteger(Number(data.yearsExperience)) && Number(data.yearsExperience) >= 0
+        ? Number(data.yearsExperience)
+        : null,
+    languages: String(data.languages ?? ""),
+    portfolioLinks: portfolioLinksFromProfile(data),
     photoDataUrl: String(data.photoDataUrl ?? ""),
     studentVerified: data.studentVerified === true,
     completedGigCount: Number(data.completedGigCount ?? 0),

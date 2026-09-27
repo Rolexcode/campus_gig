@@ -32,6 +32,7 @@ export async function GET(request: Request) {
       activeGigs,
       completedGigs,
       disputedGigs,
+      openSafetyReports,
     ] =
       await Promise.all([
         countQuery(adminDb.collection("users").where("studentVerified", "==", true)),
@@ -49,6 +50,9 @@ export async function GET(request: Request) {
         ])),
         countQuery(adminDb.collection("gigs").where("status", "==", "completed")),
         countQuery(adminDb.collection("gigs").where("status", "==", "disputed")),
+        countQuery(
+          adminDb.collection("safetyReports").where("status", "in", ["open", "reviewing"]),
+        ),
       ]);
 
     return Response.json({
@@ -61,6 +65,7 @@ export async function GET(request: Request) {
         activeGigs,
         completedGigs,
         disputedGigs,
+        openSafetyReports,
       },
       generatedAt: new Date().toISOString(),
     });

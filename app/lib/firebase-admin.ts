@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { applicationDefault, cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 function configuredCredential() {
   const base64ServiceAccount = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_BASE64?.trim();
@@ -39,16 +40,40 @@ function configuredCredential() {
   return applicationDefault();
 }
 
+function usingFirebaseEmulators() {
+  return Boolean(
+    process.env.FIREBASE_AUTH_EMULATOR_HOST ||
+      process.env.FIRESTORE_EMULATOR_HOST,
+  );
+}
+
 export function getFirebaseAdminServices() {
+  const projectId =
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    process.env.GCLOUD_PROJECT ||
+    "campusgig-e2e";
   const app = getApps().length
     ? getApp()
-    : initializeApp({
-        credential: configuredCredential(),
-        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      });
+    : initializeApp(
+        usingFirebaseEmulators()
+          ? {
+              projectId,
+              storageBucket:
+                process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ||
+                `${projectId}.appspot.com`,
+            }
+          : {
+              credential: configuredCredential(),
+              projectId,
+              storageBucket:
+                process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ||
+                `${projectId}.appspot.com`,
+            },
+      );
 
   return {
     adminAuth: getAuth(app),
     adminDb: getFirestore(app),
+    adminStorage: getStorage(app),
   };
 }
