@@ -44,7 +44,6 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  distDir: ".next-build",
   async headers() {
     return [
       {
