@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .output --ignore-pattern .next",
-    "test": "vitest run --exclude e2e/**",
+    "test": "vitest run --exclude 'e2e/**'",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:run": "playwright test",
     "test:e2e:authenticated": "node scripts/run-authenticated-e2e.mjs",
