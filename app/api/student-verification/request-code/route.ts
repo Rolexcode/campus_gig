@@ -8,6 +8,7 @@ import {
   verifiedInstitutionForEmail,
 } from "@/app/lib/school-email";
 import { apiErrorResponse, requireFirebaseUser } from "@/app/lib/server-auth";
+import { enforceServerRateLimit } from "@/app/lib/server-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -85,6 +86,16 @@ export async function POST(request: Request) {
         { status: 429, headers: { "Retry-After": String(retryAfter) } },
       );
     }
+
+    await enforceServerRateLimit({
+      adminDb,
+      bucket: "school_verification_email",
+      key: decoded.uid,
+      limit: 5,
+      windowMs: 24 * 60 * 60 * 1_000,
+      errorMessage:
+        "You have requested several school verification emails today. Try again tomorrow or use student-ID review.",
+    });
 
     const code = String(randomInt(100000, 1000000));
     await codeReference.set({
