@@ -77,6 +77,25 @@ import {
 import type { ConversationPresence } from "@/app/lib/conversation-presence";
 
 type RouteProps = { route: string[] };
+type PublicProfileData = {
+  username: string;
+  fullName: string;
+  country: string;
+  university: string;
+  course: string;
+  headline: string;
+  bio: string;
+  skills: string;
+  availability: string;
+  yearsExperience: number;
+  languages: string;
+  photoDataUrl: string;
+  portfolioLinks: PortfolioLink[];
+  studentVerified: boolean;
+  completedGigCount: number;
+  averageRating: number;
+  ratingCount: number;
+};
 type GigStatus =
   | "draft"
   | "open"
@@ -2256,6 +2275,54 @@ type PeopleSearchResult = {
   completedGigCount: number;
 };
 
+function PublicProfilePage({ username }: { username: string }) {
+  const [profile, setProfile] = useState<PublicProfileData | null>(null);
+  const [reviews, setReviews] = useState<Array<{ id: string; clientName: string; rating: number; review: string; createdAt: string | null }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/users/${encodeURIComponent(username)}`)
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(payload.error ?? "Profile could not be loaded."));
+        if (active) {
+          setProfile(payload.profile ?? null);
+          setReviews(Array.isArray(payload.reviews) ? payload.reviews : []);
+        }
+      })
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Profile could not be loaded."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [username]);
+
+  return (
+    <AppLayout>
+      <section className="page-shell py-8 sm:py-12">
+        <Link href="/people" className="inline-flex items-center gap-2 font-semibold text-primary hover:underline"><ArrowLeft className="size-4" /> Back to people</Link>
+        {loading ? <div className="card mt-8 p-10 text-center" role="status"><Clock3 className="mx-auto size-7 animate-spin text-primary" /><p className="mt-3 font-semibold">Loading profile…</p></div> : error || !profile ? <div className="card mt-8 p-10 text-center" role="alert"><AlertCircle className="mx-auto size-8 text-red-600" /><h1 className="mt-4 text-xl font-bold">Profile unavailable</h1><p className="mt-2 text-muted">{error || "This profile could not be found."}</p></div> : (
+          <>
+            <div className="card mt-8 overflow-hidden">
+              <div className="bg-primary px-6 py-8 text-white sm:px-10">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                  <ProfileAvatar name={profile.fullName} src={profile.photoDataUrl} />
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h1 className="text-3xl font-bold">{profile.fullName}</h1>{profile.studentVerified && <BadgeCheck className="size-6 text-emerald-200" aria-label="Verified student" />}</div><p className="mt-1 font-semibold text-emerald-100">@{profile.username}</p><p className="mt-3 text-emerald-50">{profile.headline || "CampusGig freelancer"}</p></div>
+                </div>
+              </div>
+              <div className="grid gap-6 p-6 sm:grid-cols-3 sm:p-10"><div><p className="text-xs font-bold uppercase tracking-wide text-muted">Completed</p><p className="mt-1 text-2xl font-bold">{profile.completedGigCount}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-muted">Client rating</p><p className="mt-1 text-2xl font-bold">{profile.averageRating ? `${profile.averageRating.toFixed(1)} / 5` : "New"}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-muted">Experience</p><p className="mt-1 text-2xl font-bold">{profile.yearsExperience ? `${profile.yearsExperience} years` : "Early career"}</p></div></div>
+            </div>
+            <div className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_.8fr]">
+              <div className="card p-6 sm:p-8"><h2 className="text-xl font-bold">About this freelancer</h2><p className="mt-4 whitespace-pre-wrap leading-7 text-muted">{profile.bio || "This freelancer has not added a bio yet."}</p>{profile.skills && <><h3 className="mt-8 font-bold">Skills</h3><p className="mt-2 leading-7 text-muted">{profile.skills}</p></>}{profile.languages && <><h3 className="mt-6 font-bold">Languages</h3><p className="mt-2 leading-7 text-muted">{profile.languages}</p></>}{profile.portfolioLinks.length > 0 && <><h3 className="mt-8 font-bold">Work and portfolio</h3><div className="mt-3 flex flex-wrap gap-2">{profile.portfolioLinks.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="btn btn-secondary"><ExternalLink className="size-4" /> {link.label}</a>)}</div></>}</div>
+              <div className="card p-6 sm:p-8"><h2 className="text-xl font-bold">Client reviews</h2>{reviews.length === 0 ? <p className="mt-4 text-sm leading-6 text-muted">Reviews from completed and approved work will appear here.</p> : <div className="mt-5 space-y-5">{reviews.map((review) => <article key={review.id} className="border-b border-border pb-5 last:border-0 last:pb-0"><div className="flex items-center justify-between gap-3"><p className="font-semibold">{review.clientName}</p><p className="font-bold text-primary">{review.rating}/5</p></div><p className="mt-2 text-sm leading-6 text-muted">{review.review}</p></article>)}</div>}</div>
+            </div>
+          </>
+        )}
+      </section>
+    </AppLayout>
+  );
+}
+
 function PeoplePage() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
@@ -2309,7 +2376,7 @@ function PeoplePage() {
               <article className="card p-5" key={person.uid}>
                 <div className="flex items-center gap-4">
                   <ProfileAvatar name={person.fullName} src={person.photoDataUrl} />
-                  <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate font-bold">{person.fullName}</h2>{person.studentVerified && <BadgeCheck className="size-4 shrink-0 text-primary" aria-label="Verified student" />}</div><p className="mt-1 truncate text-sm font-semibold text-primary">@{person.username}</p></div>
+                  <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="truncate font-bold">{person.fullName}</h2>{person.studentVerified && <BadgeCheck className="size-4 shrink-0 text-primary" aria-label="Verified student" />}</div><Link href={`/people/${person.username}`} className="mt-1 block truncate text-sm font-semibold text-primary hover:underline">@{person.username}</Link></div>
                 </div>
                 <p className="mt-4 text-sm font-semibold">{person.headline || "CampusGig member"}</p>
                 <p className="mt-1 text-sm text-muted">{person.university || "Institution not added"}</p>
@@ -13616,6 +13683,7 @@ function CampusGigRouter({ route }: RouteProps) {
   else if (path === "admin/verify-email") page = <AdminVerifyEmailPage />;
   else if (path === "gigs") page = <JobFeedPage />;
   else if (path === "people") page = <PeoplePage />;
+  else if (route[0] === "people" && route[1]) page = <PublicProfilePage username={route[1]} />;
   else if (route[0] === "gigs" && route[1] && route[2] === "conversation")
     page = <MarketplaceConversationPage id={route[1]} />;
   else if (route[0] === "gigs" && route[1])
@@ -13655,6 +13723,7 @@ function CampusGigRouter({ route }: RouteProps) {
       "escrow",
       "review",
     ].includes(path) ||
+    path.startsWith("people/") ||
     path.startsWith("my-gigs/") ||
     (route[0] === "gigs" && route[2] === "conversation");
   const protectedAdminPath = [
