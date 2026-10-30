@@ -2,9 +2,48 @@ import { FieldValue } from "firebase-admin/firestore";
 import { createEmbeddedWallet } from "@/app/lib/embedded-wallet";
 import { getFirebaseAdminServices } from "@/app/lib/firebase-admin";
 import { ApiAuthError, apiErrorResponse, requireFirebaseUser, tokenHasAdminEmail } from "@/app/lib/server-auth";
+import { paymentValue, usdcDisplayAmount } from "@/app/lib/payments";
 import { getUsdcBalance } from "@/app/lib/solana-payments";
+import { solanaExplorerTransactionUrl } from "@/app/lib/solana-payments";
 
 export const runtime = "nodejs";
+
+export async function GET(request: Request) {
+  try {
+    const decoded = await requireFirebaseUser(request);
+    if (tokenHasAdminEmail(decoded)) throw new ApiAuthError("Administrator accounts do not use marketplace wallets.", 403);
+    const { adminDb } = getFirebaseAdminServices();
+    const profileSnapshot = await adminDb.collection("users").doc(decoded.uid).get();
+    const walletAddress = String(profileSnapshot.data()?.walletAddress ?? "");
+    const [clientPayments, studentPayments, balance] = await Promise.all([
+      adminDb.collection("gigPayments").where("clientId", "==", decoded.uid).limit(50).get(),
+      adminDb.collection("gigPayments").where("studentId", "==", decoded.uid).limit(50).get(),
+      walletAddress ? getUsdcBalance(walletAddress) : Promise.resolve(BigInt(0)),
+    ]);
+    const payments = new Map<string, ReturnType<typeof paymentValue>>();
+    for (const snapshot of [...clientPayments.docs, ...studentPayments.docs]) payments.set(snapshot.id, paymentValue({ ...snapshot.data(), gigId: snapshot.id }));
+    return Response.json({
+      walletAddress,
+      network: "devnet",
+      balanceBaseUnits: balance.toString(),
+      balance: usdcDisplayAmount(balance.toString()),
+      payments: [...payments.values()].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))).slice(0, 50).map((payment) => ({
+        gigId: payment.gigId,
+        status: payment.status,
+        role: payment.clientId === decoded.uid ? "client" : "student",
+        amount: usdcDisplayAmount(payment.amountBaseUnits),
+        currency: payment.currency,
+        fundingSignature: payment.fundingSignature,
+        releaseSignature: payment.releaseSignature,
+        fundingExplorerUrl: payment.fundingSignature ? solanaExplorerTransactionUrl(payment.fundingSignature) : "",
+        releaseExplorerUrl: payment.releaseSignature ? solanaExplorerTransactionUrl(payment.releaseSignature) : "",
+        updatedAt: payment.updatedAt || payment.createdAt,
+      })),
+    });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {

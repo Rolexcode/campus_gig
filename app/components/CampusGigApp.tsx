@@ -3926,6 +3926,7 @@ function ProfileWorkspacePage() {
     }>
   >([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [walletActivity, setWalletActivity] = useState<Array<{ gigId: string; status: string; role: string; amount: string; fundingExplorerUrl: string; releaseExplorerUrl: string; updatedAt: string }>>([]);
   const [walletCopyStatus, setWalletCopyStatus] = useState<
     "idle" | "copied" | "error"
   >("idle");
@@ -3975,6 +3976,15 @@ function ProfileWorkspacePage() {
       }
     };
     void loadReviews();
+    const loadWalletActivity = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch("/api/wallet", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (active && response.ok) setWalletActivity(Array.isArray(payload.payments) ? payload.payments : []);
+      } catch { /* The wallet card remains useful when the chain is unavailable. */ }
+    };
+    void loadWalletActivity();
     return () => {
       active = false;
     };
@@ -4250,6 +4260,10 @@ function ProfileWorkspacePage() {
                   Could not copy the address. Select it and copy manually.
                 </p>
               )}
+              <div className="mt-5 border-t border-border pt-5">
+                <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-bold">Recent activity</h4><span className="text-xs text-muted">USDC settlement</span></div>
+                {walletActivity.length === 0 ? <p className="mt-3 text-sm leading-6 text-muted">Your funding and release activity will appear here.</p> : <div className="mt-3 space-y-3">{walletActivity.slice(0, 4).map((item) => <div key={`${item.gigId}-${item.updatedAt}`} className="rounded-lg border border-border p-3"><div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">Gig {item.gigId.slice(0, 8)}…</span><span className="font-mono text-sm font-bold">{item.amount} USDC</span></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted"><span className="capitalize">{item.status.replaceAll("_", " ")} · {item.role}</span><span>{adminDate(item.updatedAt)}</span></div>{(item.fundingExplorerUrl || item.releaseExplorerUrl) && <div className="mt-2 flex flex-wrap gap-3">{item.fundingExplorerUrl && <a className="text-xs font-semibold text-primary hover:underline" href={item.fundingExplorerUrl} target="_blank" rel="noreferrer">Funding on Explorer</a>}{item.releaseExplorerUrl && <a className="text-xs font-semibold text-primary hover:underline" href={item.releaseExplorerUrl} target="_blank" rel="noreferrer">Release on Explorer</a>}</div>}</div>)}</div>}
+              </div>
             </div>
             <div className="card p-5">
               <div className="flex items-center gap-2">
