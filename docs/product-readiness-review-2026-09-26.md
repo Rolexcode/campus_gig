@@ -1,6 +1,7 @@
 # CampusGig product-readiness review
 
-Date: 26 September 2026  
+Original review: 26 September 2026
+Follow-up verification: 30 October 2026
 Stage: pre-launch product beta  
 Primary users: students seeking paid work and clients hiring verified student talent  
 Core journey: post → apply → select → agree → fund → deliver → approve → settle → review
@@ -13,6 +14,24 @@ agreement, messaging, payment-state, work, review, dispute, and admin systems.
 It is a strong beta, but it is not ready for real-money public launch: local
 payout/refund operations, production Solana custody, legal/compliance review,
 observability, and full end-to-end environment verification remain material gaps.
+
+### Follow-up since the original review
+
+The product surface has since expanded without weakening those launch gates:
+
+- Search results now open privacy-safe, shareable freelancer profiles with verified
+  status, experience, portfolio links, completed work, ratings, and reviews.
+- Signed-in users can inspect their wallet settlement activity, payment status,
+  timestamps, and funding/release Explorer evidence without exposing wallet keys.
+- The administrator overview now includes live settlement-health counts for funding
+  pending, secured, released, and failed payments alongside the existing user,
+  identity, safety, dispute, and gig-lifecycle analytics.
+- School-email verification has a server-side daily request limit in addition to its
+  cooldown, reducing institutional inbox abuse.
+- Shared interaction states were polished and rechecked across desktop and mobile.
+
+These changes improve beta usability and operations; they do not change the
+real-money, custody, regulatory, or billing prerequisites listed below.
 
 ## Scorecard
 
@@ -85,6 +104,9 @@ observability, and full end-to-end environment verification remain material gaps
 ## Evidence from this review
 
 - 22 test files and 70 tests passed.
+- The latest verification also includes wallet settlement API/build coverage,
+  shareable-profile routing, live settlement analytics, and the shared interaction
+  polish pass.
 - 27 Playwright checks passed: 24 public desktop/mobile checks plus 3 isolated
   authenticated onboarding, client/student contract, and administrator journeys
   backed by Firebase emulators.
