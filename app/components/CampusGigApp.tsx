@@ -10460,6 +10460,10 @@ type AdminOverviewMetrics = {
   completedGigs: number;
   disputedGigs: number;
   openSafetyReports: number;
+  fundingPendingPayments: number;
+  fundedPayments: number;
+  completedPayments: number;
+  failedPayments: number;
   dailyRegistrations: Array<{
     date: string;
     count: number;
@@ -10727,6 +10731,30 @@ function AdminOverviewPage() {
                     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
                       <div className={`h-full rounded-full ${tone}`} style={{ width: `${percentage(Number(value), marketplaceTotal)}%` }} aria-hidden="true" />
                     </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
+          <section className="mt-6" aria-labelledby="settlement-health-heading">
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 id="settlement-health-heading" className="font-bold">Settlement health</h2>
+                  <p className="mt-1 text-xs text-slate-500">Live payment state across active and completed work.</p>
+                </div>
+                <CircleDollarSign className="size-6 text-emerald-700" aria-hidden="true" />
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Funding pending", metrics.fundingPendingPayments, "bg-amber-50 text-amber-800"],
+                  ["Secured", metrics.fundedPayments, "bg-blue-50 text-blue-800"],
+                  ["Released", metrics.completedPayments, "bg-emerald-50 text-emerald-800"],
+                  ["Failed / needs review", metrics.failedPayments, "bg-red-50 text-red-800"],
+                ].map(([label, value, tone]) => (
+                  <div key={String(label)} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-4">
+                    <span className="text-sm font-semibold text-slate-700">{label}</span>
+                    <span className={`rounded-full px-2.5 py-1 font-mono text-xs font-bold ${String(tone)}`}>{Number(value).toLocaleString()}</span>
                   </div>
                 ))}
               </div>

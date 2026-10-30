@@ -33,6 +33,10 @@ export async function GET(request: Request) {
       completedGigs,
       disputedGigs,
       openSafetyReports,
+      fundingPendingPayments,
+      fundedPayments,
+      completedPayments,
+      failedPayments,
     ] =
       await Promise.all([
         countQuery(adminDb.collection("users").where("studentVerified", "==", true)),
@@ -53,6 +57,10 @@ export async function GET(request: Request) {
         countQuery(
           adminDb.collection("safetyReports").where("status", "in", ["open", "reviewing"]),
         ),
+        countQuery(adminDb.collection("gigPayments").where("status", "==", "funding_pending")),
+        countQuery(adminDb.collection("gigPayments").where("status", "==", "funded")),
+        countQuery(adminDb.collection("gigPayments").where("status", "==", "completed")),
+        countQuery(adminDb.collection("gigPayments").where("status", "==", "failed")),
       ]);
 
     return Response.json({
@@ -66,6 +74,10 @@ export async function GET(request: Request) {
         completedGigs,
         disputedGigs,
         openSafetyReports,
+        fundingPendingPayments,
+        fundedPayments,
+        completedPayments,
+        failedPayments,
       },
       generatedAt: new Date().toISOString(),
     });
