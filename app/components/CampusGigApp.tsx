@@ -10329,16 +10329,36 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     await logOut();
     navigate("/admin/login");
   };
-  const nav = [
-    ["/admin", "Overview", LayoutDashboard],
-    ["/admin/users", "Registered users", UsersRound],
-    ["/admin/verifications", "Verification queue", UserCheck],
-    ["/admin/safety", "Safety reports", Flag],
-    ["/admin/gigs", "Gigs & payments", BriefcaseBusiness],
-    ["/admin/disputes", "Disputes", AlertCircle],
-    ["/admin/security", "Account security", LockKeyhole],
+  const navGroups = [
+    {
+      label: "Workspace",
+      items: [
+        ["/admin", "Overview", LayoutDashboard],
+        ["/admin/users", "Registered users", UsersRound],
+      ],
+    },
+    {
+      label: "Trust & safety",
+      items: [
+        ["/admin/verifications", "Verification queue", UserCheck],
+        ["/admin/safety", "Safety reports", Flag],
+        ["/admin/disputes", "Disputes", AlertCircle],
+      ],
+    },
+    {
+      label: "Marketplace",
+      items: [
+        ["/admin/gigs", "Gigs & payments", BriefcaseBusiness],
+        ["/admin/security", "Account security", LockKeyhole],
+      ],
+    },
   ] as const;
-  const currentSection = nav.find(([href]) => href === pathname)?.[1] ?? "Operations";
+  let currentSection = "Operations";
+  for (const group of navGroups) {
+    for (const item of group.items) {
+      if (item[0] === pathname) currentSection = item[1];
+    }
+  }
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950 lg:grid lg:grid-cols-[288px_minmax(0,1fr)]">
       <aside className="border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
@@ -10353,28 +10373,27 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
             </span>
           </Link>
         </div>
-        <p className="hidden px-7 pt-6 text-[11px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block">
-          Workspace
-        </p>
-        <nav
-          className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-1 lg:px-4 lg:py-3"
-          aria-label="Admin navigation"
-        >
-          {nav.map(([href, label, Icon]) => {
-            const active = pathname === href;
-            return (
-              <Link
-                href={href}
-                key={href}
-                aria-current={active ? "page" : undefined}
-                className={`focus-ring relative flex min-h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${active ? "bg-emerald-400/15 text-emerald-100" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
-              >
-                {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-emerald-400" aria-hidden="true" />}
-                <Icon className="size-4" aria-hidden="true" />
-                {label}
-              </Link>
-            );
-          })}
+        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-5 lg:px-4 lg:py-5" aria-label="Admin navigation">
+          {navGroups.map((group) => (
+            <div key={group.label} className="lg:grid lg:gap-1">
+              <p className="hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block">{group.label}</p>
+              {group.items.map(([href, label, Icon]) => {
+                const active = pathname === href;
+                return (
+                  <Link
+                    href={href}
+                    key={href}
+                    aria-current={active ? "page" : undefined}
+                    className={`focus-ring relative flex min-h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${active ? "bg-emerald-400/15 text-emerald-100" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+                  >
+                    {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+                    <Icon className="size-4" aria-hidden="true" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="border-t border-white/10 p-4 lg:mt-auto">
           <div className="rounded-lg bg-white/5 p-3">
