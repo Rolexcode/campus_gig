@@ -242,7 +242,8 @@ button:disabled { cursor: not-allowed; opacity: .62; }
 .admin-main .bg-amber-50 { background-color: rgb(116 79 13 / .24); }
 .admin-main .text-amber-800,
 .admin-main .text-amber-900,
-.admin-main .text-amber-700 { color: #f4cf80; }
+.admin-main .text-amber-700,
+.admin-main .text-amber-950 { color: #f4cf80; }
 .admin-main .bg-red-50 { background-color: rgb(125 36 36 / .24); }
 .admin-main .text-red-800,
 .admin-main .text-red-700 { color: #ffaaa4; }
