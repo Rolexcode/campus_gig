@@ -10362,7 +10362,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
   }
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950 lg:grid lg:grid-cols-[288px_minmax(0,1fr)]">
-      <aside className="border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
+      <aside className="min-h-0 overflow-hidden border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <div className="flex min-h-20 items-center border-b border-white/10 px-4 lg:px-6">
           <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview">
             <span className="grid size-10 place-items-center rounded-lg bg-emerald-400 text-slate-950 shadow-sm">
@@ -10374,7 +10374,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
             </span>
           </Link>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-5 lg:px-4 lg:py-5" aria-label="Admin navigation">
+        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:min-h-0 lg:flex-1 lg:grid lg:gap-5 lg:overflow-y-auto lg:px-4 lg:py-5" aria-label="Admin navigation">
           {navGroups.map((group) => (
             <div key={group.label} className="lg:grid lg:gap-1">
               <p className="hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block">{group.label}</p>
@@ -10511,6 +10511,13 @@ type AdminOverviewMetrics = {
   dailyRegistrations: Array<{
     date: string;
     count: number;
+  }>;
+  recentActivity: Array<{
+    id: string;
+    action: string;
+    entity: string;
+    status: string;
+    createdAt: string | null;
   }>;
 };
 
@@ -10844,6 +10851,37 @@ function AdminOverviewPage() {
                   </div>
                 ))}
               </div>
+            </article>
+          </section>
+          <section className="mt-6" aria-labelledby="recent-activity-heading">
+            <article className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 id="recent-activity-heading" className="font-bold">Recent admin activity</h2>
+                  <p className="mt-1 text-xs text-slate-500">A safe, chronological view of recorded operations actions.</p>
+                </div>
+                <Link href="/admin/security" className="text-xs font-semibold text-emerald-800 underline underline-offset-4">Open audit controls</Link>
+              </div>
+              {metrics.recentActivity.length ? (
+                <div className="mt-5 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                  {metrics.recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600"><ShieldCheck className="size-4" aria-hidden="true" /></span>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{activity.action}</p>
+                          <p className="text-xs text-slate-500">{activity.entity} · {activity.status}</p>
+                        </div>
+                      </div>
+                      <time className="text-xs text-slate-500 sm:pl-4" dateTime={activity.createdAt ?? undefined}>{activity.createdAt ? adminDate(activity.createdAt) : "Pending timestamp"}</time>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                  No admin actions have been recorded yet. Decisions made in the verification, safety, dispute, and account queues will appear here.
+                </div>
+              )}
             </article>
           </section>
         </>
