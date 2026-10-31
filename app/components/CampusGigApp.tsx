@@ -10579,6 +10579,48 @@ function AdminOverviewPage() {
         </div>
       ) : metrics ? (
         <>
+          <section className="mt-7 overflow-hidden rounded-2xl bg-slate-950 text-white shadow-xl shadow-slate-900/10" aria-labelledby="admin-command-heading">
+            <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.2fr_1fr] lg:items-end">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-emerald-300">
+                  <span className="size-2 rounded-full bg-emerald-400" aria-hidden="true" />
+                  Live operations
+                </div>
+                <h2 id="admin-command-heading" className="mt-4 max-w-xl text-2xl font-bold tracking-[-0.035em] sm:text-3xl">
+                  Keep the marketplace moving.
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                  Review trust signals, unblock payments, and keep student work moving from application to completion.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
+                {[
+                  ["This month", metrics.registeredThisMonth, "New members"],
+                  ["Awaiting review", metrics.pendingVerifications, "Verifications"],
+                  ["In progress", metrics.activeGigs, "Active gigs"],
+                  ["Needs attention", metrics.openSafetyReports + metrics.disputedGigs + metrics.failedPayments, "Safety, disputes, payments"],
+                ].map(([label, value, detail]) => (
+                  <div key={String(label)} className="rounded-xl border border-white/10 bg-white/[0.06] p-4">
+                    <p className="text-xs font-semibold text-slate-400">{label}</p>
+                    <p className="mt-2 font-mono text-2xl font-bold text-white">{Number(value).toLocaleString()}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">{detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 border-t border-white/10 bg-white/[0.03] px-6 py-4 sm:px-8">
+              <span className="mr-1 text-xs font-semibold text-slate-400">Quick actions</span>
+              {[
+                ["Review verifications", "/admin/verifications"],
+                ["Open safety queue", "/admin/safety"],
+                ["View payment states", "/admin/gigs"],
+              ].map(([label, href]) => (
+                <Link key={href} href={href} className="focus-ring rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-emerald-300 hover:bg-emerald-400/10 hover:text-emerald-200">
+                  {label}<span className="ml-1.5" aria-hidden="true">→</span>
+                </Link>
+              ))}
+            </div>
+          </section>
           <section className="mt-7" aria-labelledby="user-health-heading">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
