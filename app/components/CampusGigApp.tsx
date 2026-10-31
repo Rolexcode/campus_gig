@@ -10325,6 +10325,7 @@ function AdminLayout({
 function RealAdminLayout({ children }: { children: ReactNode }) {
   const { user, logOut } = useAuth();
   const pathname = useAppPathname();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const displayName = user?.displayName || user?.email || "CampusGig admin";
   const logout = async () => {
     await logOut();
@@ -10361,14 +10362,14 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     }
   }
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-950 lg:grid lg:grid-cols-[288px_minmax(0,1fr)]">
+    <div className={`min-h-screen bg-slate-50 text-slate-950 lg:grid ${sidebarCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[288px_minmax(0,1fr)]"}`}>
       <aside className="min-h-0 overflow-hidden border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <div className="flex min-h-20 items-center border-b border-white/10 px-4 lg:px-6">
           <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview">
             <span className="grid size-10 place-items-center rounded-lg bg-emerald-400 text-slate-950 shadow-sm">
               <ShieldCheck className="size-5" aria-hidden="true" />
             </span>
-            <span>
+            <span className={sidebarCollapsed ? "sr-only" : ""}>
               <span className="block font-bold tracking-tight">CampusGig</span>
               <span className="mt-0.5 block text-xs font-medium text-slate-400">Operations console</span>
             </span>
@@ -10377,7 +10378,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
         <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:min-h-0 lg:flex-1 lg:grid lg:gap-5 lg:overflow-y-auto lg:px-4 lg:py-5" aria-label="Admin navigation">
           {navGroups.map((group) => (
             <div key={group.label} className="lg:grid lg:gap-1">
-              <p className="hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block">{group.label}</p>
+              <p className={`hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block ${sidebarCollapsed ? "sr-only" : ""}`}>{group.label}</p>
               {group.items.map(([href, label, Icon]) => {
                 const active = pathname === href;
                 return (
@@ -10389,7 +10390,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
                   >
                     {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-emerald-400" aria-hidden="true" />}
                     <Icon className="size-4" aria-hidden="true" />
-                    {label}
+                    <span className={sidebarCollapsed ? "sr-only" : ""}>{label}</span>
                   </Link>
                 );
               })}
@@ -10397,14 +10398,14 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="border-t border-white/10 p-4 lg:mt-auto">
-          <div className="mb-4 grid gap-1">
+          <div className={`mb-4 grid gap-1 ${sidebarCollapsed ? "lg:items-center" : ""}`}>
             <Link href="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
               <LifeBuoy className="size-4" aria-hidden="true" />
-              Help &amp; support
+              <span className={sidebarCollapsed ? "sr-only" : ""}>Help &amp; support</span>
             </Link>
             <Link href="/" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Back to CampusGig
+              <span className={sidebarCollapsed ? "sr-only" : ""}>Back to CampusGig</span>
             </Link>
           </div>
           <div className="rounded-lg bg-white/5 p-3">
@@ -10413,7 +10414,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
               Secure session
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-400">
-              Restricted to authenticated administrators. All sensitive actions are logged.
+              <span className={sidebarCollapsed ? "sr-only" : ""}>Restricted to authenticated administrators. All sensitive actions are logged.</span>
             </p>
           </div>
         </div>
@@ -10421,11 +10422,30 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
       <div className="min-w-0">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-            <div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="btn btn-secondary min-h-10 min-w-10 bg-white px-3 lg:hidden"
+                aria-label="Open admin navigation"
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                <Menu className="size-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary hidden min-h-10 min-w-10 bg-white px-3 lg:inline-flex"
+                aria-label={sidebarCollapsed ? "Expand admin navigation" : "Collapse admin navigation"}
+                aria-pressed={sidebarCollapsed}
+                onClick={() => setSidebarCollapsed((value) => !value)}
+              >
+                <Menu className="size-4" aria-hidden="true" />
+              </button>
+              <div>
               <p className="text-xs font-semibold text-slate-500">
                 Admin <span className="mx-1 text-slate-300">/</span> {currentSection}
               </p>
               <p className="mt-1 text-sm font-bold text-slate-900">Operations workspace</p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 md:inline-flex">
