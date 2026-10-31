@@ -37,6 +37,7 @@ import {
   Flag,
   GraduationCap,
   LayoutDashboard,
+  LifeBuoy,
   LockKeyhole,
   Paperclip,
   Plus,
@@ -10396,13 +10397,23 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="border-t border-white/10 p-4 lg:mt-auto">
+          <div className="mb-4 grid gap-1">
+            <Link href="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
+              <LifeBuoy className="size-4" aria-hidden="true" />
+              Help &amp; support
+            </Link>
+            <Link href="/" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Back to CampusGig
+            </Link>
+          </div>
           <div className="rounded-lg bg-white/5 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
               <span className="size-2 rounded-full bg-emerald-400" aria-hidden="true" />
               Secure session
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-400">
-              Restricted to authenticated administrators.
+              Restricted to authenticated administrators. All sensitive actions are logged.
             </p>
           </div>
         </div>
