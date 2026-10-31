@@ -2247,8 +2247,21 @@ function PasswordSecurityPage({ admin = false }: { admin?: boolean }) {
     return (
       <RealAdminLayout>
         <AdminPageHeader title="Account security" description="Change the password for this administrator identity." />
-        <section className="mt-7 max-w-xl rounded-xl border border-slate-200 bg-white p-5 sm:p-7">
-          <PasswordSecurityForm admin />
+        <section className="mt-7 grid max-w-4xl gap-6 lg:grid-cols-[.8fr_1.2fr]">
+          <aside className="rounded-xl bg-slate-950 p-6 text-white sm:p-7">
+            <span className="grid size-11 place-items-center rounded-xl bg-emerald-400 text-slate-950"><LockKeyhole className="size-5" aria-hidden="true" /></span>
+            <h2 className="mt-6 text-lg font-bold tracking-tight">Protect administrator access</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">Use a unique password for the restricted operations console. This identity is separate from marketplace accounts.</p>
+            <ul className="mt-7 grid gap-4 text-sm text-slate-200">
+              {["At least 8 characters", "Different from your current password", "Never share it with another operator"].map((item) => (
+                <li key={item} className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" aria-hidden="true" /><span>{item}</span></li>
+              ))}
+            </ul>
+          </aside>
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+            <div className="mb-6 border-b border-slate-100 pb-5"><h2 className="font-bold text-slate-900">Update password</h2><p className="mt-1 text-sm text-slate-500">Confirm your current password before saving a new one.</p></div>
+            <PasswordSecurityForm admin />
+          </div>
         </section>
       </RealAdminLayout>
     );
@@ -10363,7 +10376,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
   }
   return (
     <div className={`min-h-screen bg-slate-50 text-slate-950 lg:grid ${sidebarCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[288px_minmax(0,1fr)]"}`}>
-      <aside className="min-h-0 overflow-hidden border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
+      <aside className="border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:min-h-screen lg:self-start lg:flex-col">
         <div className="flex min-h-20 items-center border-b border-white/10 px-4 lg:px-6">
           <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview">
             <span className="grid size-10 place-items-center rounded-lg bg-emerald-400 text-slate-950 shadow-sm">
@@ -10375,7 +10388,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
             </span>
           </Link>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:min-h-0 lg:flex-1 lg:grid lg:gap-5 lg:overflow-y-auto lg:px-4 lg:py-5" aria-label="Admin navigation">
+        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-3 lg:px-4 lg:py-5" aria-label="Admin navigation">
           {navGroups.map((group) => (
             <div key={group.label} className="lg:grid lg:gap-1">
               <p className={`hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block ${sidebarCollapsed ? "sr-only" : ""}`}>{group.label}</p>
