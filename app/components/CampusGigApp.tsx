@@ -10858,18 +10858,46 @@ function AdminOverviewPage() {
                 </div>
                 <CircleDollarSign className="size-6 text-emerald-700" aria-hidden="true" />
               </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ["Funding pending", metrics.fundingPendingPayments, "bg-amber-50 text-amber-800"],
-                  ["Secured", metrics.fundedPayments, "bg-blue-50 text-blue-800"],
-                  ["Released", metrics.completedPayments, "bg-emerald-50 text-emerald-800"],
-                  ["Failed / needs review", metrics.failedPayments, "bg-red-50 text-red-800"],
-                ].map(([label, value, tone]) => (
-                  <div key={String(label)} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-4">
-                    <span className="text-sm font-semibold text-slate-700">{label}</span>
-                    <span className={`rounded-full px-2.5 py-1 font-mono text-xs font-bold ${String(tone)}`}>{Number(value).toLocaleString()}</span>
-                  </div>
-                ))}
+              <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-center">
+                {(() => {
+                  const total = metrics.fundingPendingPayments + metrics.fundedPayments + metrics.completedPayments + metrics.failedPayments;
+                  const securedPercent = total ? Math.round((metrics.fundedPayments / total) * 100) : 0;
+                  return (
+                    <div className="flex items-center gap-6">
+                      <div
+                        className="relative grid size-36 shrink-0 place-items-center rounded-full"
+                        style={{ background: `conic-gradient(#047857 ${securedPercent}%, #e2e8f0 ${securedPercent}% 100%)` }}
+                        role="img"
+                        aria-label={`${securedPercent}% of payment records are secured`}
+                      >
+                        <div className="grid size-24 place-items-center rounded-full bg-white text-center">
+                          <span className="font-mono text-2xl font-bold text-slate-900">{securedPercent}%</span>
+                          <span className="text-[11px] font-semibold text-slate-500">secured</span>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 text-sm">
+                        <div><p className="font-mono text-xl font-bold text-slate-900">{total.toLocaleString()}</p><p className="text-xs text-slate-500">Total payment records</p></div>
+                        <div><p className="font-mono text-xl font-bold text-emerald-700">{metrics.completedPayments.toLocaleString()}</p><p className="text-xs text-slate-500">Released successfully</p></div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="grid gap-4 border-t border-slate-200 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                  {[
+                    ["Funding pending", metrics.fundingPendingPayments, "bg-amber-500"],
+                    ["Secured", metrics.fundedPayments, "bg-blue-500"],
+                    ["Released", metrics.completedPayments, "bg-emerald-700"],
+                    ["Failed / needs review", metrics.failedPayments, "bg-red-600"],
+                  ].map(([label, value, bar]) => {
+                    const total = metrics.fundingPendingPayments + metrics.fundedPayments + metrics.completedPayments + metrics.failedPayments;
+                    return (
+                      <div key={String(label)}>
+                        <div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-600"><span>{label}</span><span className="font-mono text-slate-900">{Number(value).toLocaleString()}</span></div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${bar}`} style={{ width: `${percentage(Number(value), total)}%` }} aria-hidden="true" /></div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </article>
           </section>
