@@ -154,6 +154,173 @@ button:disabled { cursor: not-allowed; opacity: .62; }
 .vault-ring-one { inset: 24% 17%; }
 .vault-ring-two { inset: 32% 27%; border-style: dashed; }
 
+/* Administrator console: a compact, high-contrast operations workspace. */
+.admin-shell {
+  --admin-canvas: #101412;
+  --admin-surface: #171c19;
+  --admin-surface-raised: #1d2420;
+  --admin-line: #2a332e;
+  --admin-text: #edf2ee;
+  --admin-muted: #a1ada6;
+  --admin-green: #42d6a0;
+  min-height: 100vh;
+  background: var(--admin-canvas);
+  color: var(--admin-text);
+  color-scheme: dark;
+}
+
+.admin-sidebar {
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-right: 1px solid var(--admin-line);
+  background: #131815;
+  color: var(--admin-text);
+}
+.admin-sidebar::-webkit-scrollbar { display: none; }
+.admin-sidebar.translate-x-0 { transform: translateX(0); }
+
+.admin-nav { scrollbar-width: none; }
+.admin-sidebar .admin-nav { flex: 0 0 auto; overflow: visible; }
+.admin-nav::-webkit-scrollbar { display: none; }
+.admin-nav-link.is-active {
+  background: rgba(66, 214, 160, .13);
+  color: #a7f3d0;
+}
+.admin-nav-link.is-active::before {
+  position: absolute;
+  inset-block: .5rem;
+  left: 0;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--admin-green);
+  content: "";
+}
+.admin-mobile-close,
+.admin-menu-button,
+.admin-logout {
+  border-color: var(--admin-line);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+}
+.admin-mobile-close:hover,
+.admin-menu-button:hover,
+.admin-logout:hover { background: var(--admin-surface-raised); }
+.admin-nav-backdrop { border: 0; background: rgb(0 0 0 / .62); }
+.admin-content { min-width: 0; background: var(--admin-canvas); }
+.admin-topbar {
+  border-color: var(--admin-line);
+  background: rgb(16 20 18 / .94);
+}
+.admin-session-indicator {
+  background: rgba(66, 214, 160, .1);
+  color: #a7f3d0;
+}
+.admin-session-indicator > span { background: var(--admin-green); }
+.admin-avatar { background: #252f29; color: #d5e2da; }
+.admin-main { color: var(--admin-text); }
+.admin-main h1,
+.admin-main h2,
+.admin-main h3 { color: var(--admin-text); }
+.admin-main .text-slate-950,
+.admin-main .text-slate-900,
+.admin-main .text-slate-800,
+.admin-main .text-slate-700 { color: var(--admin-text); }
+.admin-main .text-slate-600,
+.admin-main .text-slate-500 { color: var(--admin-muted); }
+.admin-main .text-slate-400 { color: #88958d; }
+.admin-main .bg-white { background-color: var(--admin-surface); }
+.admin-main .bg-slate-50,
+.admin-main .bg-slate-100 { background-color: var(--admin-surface-raised); }
+.admin-main .border-slate-100,
+.admin-main .border-slate-200,
+.admin-main .border-slate-300 { border-color: var(--admin-line); }
+.admin-main .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--admin-line); }
+.admin-main .bg-emerald-50 { background-color: rgb(16 91 66 / .28); }
+.admin-main .bg-emerald-100 { background-color: rgb(16 91 66 / .4); }
+.admin-main .text-emerald-800,
+.admin-main .text-emerald-700 { color: #86e8bb; }
+.admin-main .bg-amber-50 { background-color: rgb(116 79 13 / .24); }
+.admin-main .text-amber-800,
+.admin-main .text-amber-900,
+.admin-main .text-amber-700 { color: #f4cf80; }
+.admin-main .bg-red-50 { background-color: rgb(125 36 36 / .24); }
+.admin-main .text-red-800,
+.admin-main .text-red-700 { color: #ffaaa4; }
+.admin-main .bg-blue-50 { background-color: rgb(37 85 140 / .25); }
+.admin-main .text-blue-700 { color: #a9ceff; }
+.admin-main .input {
+  border-color: var(--admin-line);
+  background: #111613;
+  color: var(--admin-text);
+}
+.admin-main .input::placeholder { color: #849188; }
+.admin-main .field > label,
+.admin-main .field > legend { color: #d6e0d9; }
+.admin-main .field-hint { color: var(--admin-muted); }
+.admin-main .status-completed { background: rgb(16 91 66 / .38); color: #a7f3d0; }
+.admin-main .status-submitted { background: rgb(116 79 13 / .3); color: #f4cf80; }
+.admin-main .status-rejected { background: rgb(125 36 36 / .3); color: #ffaaa4; }
+.admin-main .status-applied { background: #28312c; color: #d3ddd6; }
+.admin-main .status-progress { background: rgb(37 85 140 / .3); color: #b2d2ff; }
+.admin-main .table-wrap { border-color: var(--admin-line); background: var(--admin-surface); }
+.admin-main .data-table { min-width: 900px; }
+.admin-main .data-table th {
+  border-color: var(--admin-line);
+  background: #1d2420;
+  color: #a1ada6;
+}
+.admin-main .data-table td { border-color: var(--admin-line); color: #dce5df; }
+.admin-main .data-table tbody tr:hover { background: #1d2420; }
+.admin-main .admin-panel {
+  border-color: var(--admin-line);
+  background: var(--admin-surface);
+}
+.admin-main .admin-panel-muted { background: var(--admin-surface-raised); }
+.admin-main article,
+.admin-main .table-wrap,
+.admin-main .admin-panel,
+.admin-main .admin-data-toolbar,
+.admin-main .admin-security-form,
+.admin-main .admin-security-intro { border-radius: .625rem; box-shadow: none; }
+.admin-main .admin-page-description { color: var(--admin-muted); }
+.admin-main .admin-security-intro {
+  border: 1px solid var(--admin-line);
+  background: linear-gradient(145deg, #19231d, #151a17 65%);
+}
+.admin-main .admin-security-form {
+  border: 1px solid var(--admin-line);
+  background: var(--admin-surface);
+}
+.admin-main .admin-password-form .input { min-height: 46px; }
+.admin-main .admin-password-submit {
+  background: #087a55;
+  color: white;
+}
+.admin-main .admin-password-submit:hover { background: #0a9064; }
+.admin-main .admin-password-form [role="alert"] {
+  border-color: rgb(239 68 68 / .3);
+  background: rgb(125 36 36 / .2);
+  color: #ffaaa4;
+}
+.admin-main .admin-password-form [role="status"] {
+  border-color: rgb(52 211 153 / .3);
+  background: rgb(16 91 66 / .22);
+  color: #a7f3d0;
+}
+.admin-main .admin-data-toolbar {
+  border: 1px solid var(--admin-line);
+  background: var(--admin-surface);
+}
+.admin-main select.admin-menu-button option { background: #171c19; color: #edf2ee; }
+.admin-main .admin-filter[aria-pressed="true"] {
+  background: rgba(66, 214, 160, .14);
+  color: #a7f3d0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar { transition-duration: 0ms !important; }
+}
+
 .vault-core {
   position: relative;
   z-index: 2;

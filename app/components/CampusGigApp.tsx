@@ -39,6 +39,7 @@ import {
   LayoutDashboard,
   LifeBuoy,
   LockKeyhole,
+  MailCheck,
   Paperclip,
   Plus,
   Copy,
@@ -2209,7 +2210,7 @@ function PasswordSecurityForm({ admin = false }: { admin?: boolean }) {
   };
 
   return (
-    <form className="space-y-5" onSubmit={submit} aria-busy={busy}>
+    <form className={`space-y-5 ${admin ? "admin-password-form" : ""}`} onSubmit={submit} aria-busy={busy}>
       {saved && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800" role="status">
           <CheckCircle2 className="mr-2 inline size-4" /> Password updated successfully.
@@ -2235,7 +2236,7 @@ function PasswordSecurityForm({ admin = false }: { admin?: boolean }) {
           <input className="input" id={`${admin ? "admin-" : ""}confirm-password`} name="confirmation" type="password" autoComplete="new-password" minLength={8} required />
         </div>
       </fieldset>
-      <button className={`btn w-full ${admin ? "bg-slate-950 text-white hover:bg-slate-800" : "btn-primary"}`} type="submit" disabled={busy}>
+      <button className={`btn w-full ${admin ? "admin-password-submit" : "btn-primary"}`} type="submit" disabled={busy} aria-busy={busy}>
         {busy ? <><Clock3 className="size-4 animate-spin" /> Updating password…</> : "Update password"}
       </button>
     </form>
@@ -2247,19 +2248,20 @@ function PasswordSecurityPage({ admin = false }: { admin?: boolean }) {
     return (
       <RealAdminLayout>
         <AdminPageHeader title="Account security" description="Change the password for this administrator identity." />
-        <section className="mt-7 grid max-w-4xl gap-6 lg:grid-cols-[.8fr_1.2fr]">
-          <aside className="rounded-xl bg-slate-950 p-6 text-white sm:p-7">
-            <span className="grid size-11 place-items-center rounded-xl bg-emerald-400 text-slate-950"><LockKeyhole className="size-5" aria-hidden="true" /></span>
-            <h2 className="mt-6 text-lg font-bold tracking-tight">Protect administrator access</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-300">Use a unique password for the restricted operations console. This identity is separate from marketplace accounts.</p>
+        <section className="mt-7 grid max-w-5xl gap-5 lg:grid-cols-[.8fr_1.2fr]">
+          <aside className="admin-security-intro rounded-lg p-6 sm:p-7">
+            <span className="grid size-10 place-items-center rounded-md bg-emerald-400 text-slate-950"><LockKeyhole className="size-5" aria-hidden="true" /></span>
+            <p className="mt-6 text-[11px] font-semibold uppercase tracking-[.12em] text-emerald-300">Security controls</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight">Protect administrator access</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">Use a unique password for this restricted operations identity. It is separate from your marketplace account.</p>
             <ul className="mt-7 grid gap-4 text-sm text-slate-200">
               {["At least 8 characters", "Different from your current password", "Never share it with another operator"].map((item) => (
                 <li key={item} className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" aria-hidden="true" /><span>{item}</span></li>
               ))}
             </ul>
           </aside>
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-            <div className="mb-6 border-b border-slate-100 pb-5"><h2 className="font-bold text-slate-900">Update password</h2><p className="mt-1 text-sm text-slate-500">Confirm your current password before saving a new one.</p></div>
+          <div className="admin-security-form rounded-lg p-5 sm:p-7">
+            <div className="mb-6 border-b border-slate-100 pb-5"><p className="text-[11px] font-semibold uppercase tracking-[.12em] text-slate-400">Administrator account</p><h2 className="mt-2 text-lg font-semibold text-slate-100">Update password</h2><p className="mt-1 text-sm text-slate-400">Confirm your current password before saving a new one.</p></div>
             <PasswordSecurityForm admin />
           </div>
         </section>
@@ -10338,12 +10340,25 @@ function AdminLayout({
 function RealAdminLayout({ children }: { children: ReactNode }) {
   const { user, logOut } = useAuth();
   const pathname = useAppPathname();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const displayName = user?.displayName || user?.email || "CampusGig admin";
   const logout = async () => {
     await logOut();
     navigate("/admin/login");
   };
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [navigationOpen]);
   const navGroups = [
     {
       label: "Workspace",
@@ -10375,23 +10390,38 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
     }
   }
   return (
-    <div className={`min-h-screen bg-slate-50 text-slate-950 lg:grid ${sidebarCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[288px_minmax(0,1fr)]"}`}>
-      <aside className="border-r border-slate-800 bg-slate-950 text-white lg:sticky lg:top-0 lg:flex lg:min-h-screen lg:self-start lg:flex-col">
-        <div className="flex min-h-20 items-center border-b border-white/10 px-4 lg:px-6">
-          <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview">
-            <span className="grid size-10 place-items-center rounded-lg bg-emerald-400 text-slate-950 shadow-sm">
+    <div className="admin-shell min-h-screen lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      {navigationOpen && (
+        <button
+          type="button"
+          className="admin-nav-backdrop fixed inset-0 z-40 lg:hidden"
+          aria-label="Close admin navigation"
+          onClick={() => setNavigationOpen(false)}
+        />
+      )}
+      <aside
+        id="admin-navigation"
+        className={`admin-sidebar fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] -translate-x-full flex-col transition-transform duration-200 ease-out lg:sticky lg:top-0 lg:h-dvh lg:w-auto lg:translate-x-0 ${navigationOpen ? "translate-x-0" : ""}`}
+        aria-label="Administrator workspace"
+      >
+        <div className="flex min-h-[76px] items-center justify-between border-b border-white/10 px-5">
+          <Link href="/admin" className="focus-ring flex min-h-12 items-center gap-3 rounded-lg" aria-label="CampusGig admin overview" onClick={() => setNavigationOpen(false)}>
+            <span className="grid size-9 place-items-center rounded-lg bg-emerald-400 text-slate-950">
               <ShieldCheck className="size-5" aria-hidden="true" />
             </span>
-            <span className={sidebarCollapsed ? "sr-only" : ""}>
-              <span className="block font-bold tracking-tight">CampusGig</span>
-              <span className="mt-0.5 block text-xs font-medium text-slate-400">Operations console</span>
+            <span>
+              <span className="block text-sm font-semibold tracking-tight">CampusGig</span>
+              <span className="mt-0.5 block text-xs font-medium text-slate-400">Operations</span>
             </span>
           </Link>
+          <button type="button" className="admin-mobile-close focus-ring grid size-10 place-items-center rounded-lg lg:hidden" aria-label="Close admin navigation" onClick={() => setNavigationOpen(false)}>
+            <X className="size-4" aria-hidden="true" />
+          </button>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:grid lg:gap-3 lg:px-4 lg:py-5" aria-label="Admin navigation">
+        <nav className="admin-nav flex-1 space-y-6 overflow-y-auto px-3 py-5" aria-label="Admin navigation">
           {navGroups.map((group) => (
-            <div key={group.label} className="lg:grid lg:gap-1">
-              <p className={`hidden px-3 pb-1 text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 lg:block ${sidebarCollapsed ? "sr-only" : ""}`}>{group.label}</p>
+            <div key={group.label} className="grid gap-1">
+              <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-slate-500">{group.label}</p>
               {group.items.map(([href, label, Icon]) => {
                 const active = pathname === href;
                 return (
@@ -10399,86 +10429,77 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
                     href={href}
                     key={href}
                     aria-current={active ? "page" : undefined}
-                    className={`focus-ring relative flex min-h-11 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors ${active ? "bg-emerald-400/15 text-emerald-100" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}
+                    onClick={() => setNavigationOpen(false)}
+                    className={`admin-nav-link focus-ring relative flex min-h-10 items-center gap-3 rounded-md px-3 text-[13px] font-medium transition-[background-color,color] duration-150 ease-out ${active ? "is-active" : "text-slate-300 hover:bg-white/[0.06] hover:text-white"}`}
                   >
-                    {active && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-emerald-400" aria-hidden="true" />}
                     <Icon className="size-4" aria-hidden="true" />
-                    <span className={sidebarCollapsed ? "sr-only" : ""}>{label}</span>
+                    <span>{label}</span>
                   </Link>
                 );
               })}
             </div>
           ))}
         </nav>
-        <div className="border-t border-white/10 p-4 lg:mt-auto">
-          <div className={`mb-4 grid gap-1 ${sidebarCollapsed ? "lg:items-center" : ""}`}>
-            <Link href="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
+        <div className="border-t border-white/10 p-3">
+          <div className="mb-3 grid gap-1">
+            <Link href="/help" className="admin-nav-link focus-ring flex min-h-10 items-center gap-3 rounded-md px-3 text-[13px] font-medium text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white">
               <LifeBuoy className="size-4" aria-hidden="true" />
-              <span className={sidebarCollapsed ? "sr-only" : ""}>Help &amp; support</span>
+              <span>Help &amp; support</span>
             </Link>
-            <Link href="/" className="focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white">
+            <Link href="/" className="admin-nav-link focus-ring flex min-h-10 items-center gap-3 rounded-md px-3 text-[13px] font-medium text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white">
               <ArrowLeft className="size-4" aria-hidden="true" />
-              <span className={sidebarCollapsed ? "sr-only" : ""}>Back to CampusGig</span>
+              <span>Back to CampusGig</span>
             </Link>
           </div>
-          <div className="rounded-lg bg-white/5 p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+          <div className="rounded-md border border-white/[0.08] bg-white/[0.035] p-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-200">
               <span className="size-2 rounded-full bg-emerald-400" aria-hidden="true" />
-              Secure session
+              Restricted workspace
             </div>
-            <p className="mt-2 text-xs leading-5 text-slate-400">
-              <span className={sidebarCollapsed ? "sr-only" : ""}>Restricted to authenticated administrators. All sensitive actions are logged.</span>
+            <p className="mt-1.5 text-xs leading-5 text-slate-400">
+              Sensitive operations are audited.
             </p>
           </div>
         </div>
       </aside>
-      <div className="min-w-0">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="admin-content min-w-0">
+        <header className="admin-topbar sticky top-0 z-30 border-b backdrop-blur">
+          <div className="flex min-h-[68px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                className="btn btn-secondary min-h-10 min-w-10 bg-white px-3 lg:hidden"
+                className="admin-menu-button focus-ring grid size-10 shrink-0 place-items-center rounded-md border lg:hidden"
                 aria-label="Open admin navigation"
-                onClick={() => setSidebarCollapsed(false)}
-              >
-                <Menu className="size-4" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary hidden min-h-10 min-w-10 bg-white px-3 lg:inline-flex"
-                aria-label={sidebarCollapsed ? "Expand admin navigation" : "Collapse admin navigation"}
-                aria-pressed={sidebarCollapsed}
-                onClick={() => setSidebarCollapsed((value) => !value)}
+                aria-controls="admin-navigation"
+                aria-expanded={navigationOpen}
+                onClick={() => setNavigationOpen(true)}
               >
                 <Menu className="size-4" aria-hidden="true" />
               </button>
               <div>
-              <p className="text-xs font-semibold text-slate-500">
-                Admin <span className="mx-1 text-slate-300">/</span> {currentSection}
-              </p>
-              <p className="mt-1 text-sm font-bold text-slate-900">Operations workspace</p>
+                <p className="text-[11px] font-medium text-slate-400">
+                  Admin <span className="mx-1 text-slate-600">/</span> {currentSection}
+                </p>
+                <p className="mt-0.5 text-sm font-semibold text-slate-100">Operations workspace</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 md:inline-flex">
+              <span className="admin-session-indicator hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium md:inline-flex">
                 <span className="size-1.5 rounded-full bg-emerald-600" aria-hidden="true" />
-                Authenticated
+                Secure session
               </span>
-              <span className="avatar bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+              <span className="admin-avatar grid size-9 shrink-0 place-items-center rounded-full text-xs font-semibold">
                 {initialsFor(displayName)}
               </span>
               <div className="hidden sm:block">
-                <p className="max-w-48 truncate text-sm font-semibold">
+                <p className="max-w-48 truncate text-[13px] font-semibold text-slate-100">
                   {displayName}
                 </p>
-                <p className="text-xs text-slate-500">
-                  Administrator
-                </p>
+                <p className="text-xs text-slate-400">Administrator</p>
               </div>
               <button
                 type="button"
-                className="btn btn-secondary min-h-10 px-4"
+                className="admin-logout focus-ring inline-flex min-h-10 items-center justify-center rounded-md border px-3 text-xs font-semibold transition-colors duration-150 ease-out"
                 onClick={logout}
               >
                 Log out
@@ -10487,7 +10508,7 @@ function RealAdminLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <main
-          className="mx-auto w-full max-w-screen-2xl p-4 sm:p-6 lg:p-8 xl:p-10"
+          className="admin-main mx-auto w-full max-w-screen-2xl p-4 sm:p-6 lg:p-8 xl:px-10 xl:py-9"
           id="main-content"
           tabIndex={-1}
         >
@@ -10508,12 +10529,13 @@ function AdminPageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="admin-page-heading flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-bold tracking-[-0.035em] sm:text-3xl">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[.12em] text-emerald-300">Operations <span className="px-1 text-slate-600">/</span> {title}</p>
+        <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-[30px]">
           {title}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+        <p className="admin-page-description mt-2 max-w-2xl text-sm leading-6 text-slate-600">
           {description}
         </p>
       </div>
@@ -10557,6 +10579,7 @@ type AdminOverviewMetrics = {
 function AdminOverviewPage() {
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<AdminOverviewMetrics | null>(null);
+  const [trendRange, setTrendRange] = useState<7 | 14>(14);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -10603,15 +10626,49 @@ function AdminOverviewPage() {
         ["Verified students", metrics.verifiedUsers, "Approved by operations", BadgeCheck],
       ] as const)
     : [];
+  const registrationTrend = metrics?.dailyRegistrations.slice(-trendRange) ?? [];
   const dailyMaximum = Math.max(
     1,
-    ...(metrics?.dailyRegistrations ?? []).map((point) => point.count),
+    ...registrationTrend.map((point) => point.count),
   );
   const percentage = (value: number, total: number) =>
     total > 0 ? Math.round((value / total) * 100) : 0;
   const marketplaceTotal = metrics
     ? metrics.openGigs + metrics.activeGigs + metrics.completedGigs + metrics.disputedGigs
     : 0;
+  const exportReport = () => {
+    if (!metrics) return;
+    const rows = [
+      ["CampusGig operations report", generatedAt ?? ""],
+      ["Metric", "Value"],
+      ["Total members", metrics.totalUsers],
+      ["Registered today", metrics.registeredToday],
+      ["Registered this week", metrics.registeredThisWeek],
+      ["Registered this month", metrics.registeredThisMonth],
+      ["Email verified users", metrics.emailVerifiedUsers],
+      ["Verified students", metrics.verifiedUsers],
+      ["Pending verifications", metrics.pendingVerifications],
+      ["Open gigs", metrics.openGigs],
+      ["Active gigs", metrics.activeGigs],
+      ["Completed gigs", metrics.completedGigs],
+      ["Disputed gigs", metrics.disputedGigs],
+      ["Open safety reports", metrics.openSafetyReports],
+      ["Funding pending payments", metrics.fundingPendingPayments],
+      ["Secured payments", metrics.fundedPayments],
+      ["Released payments", metrics.completedPayments],
+      ["Failed payments", metrics.failedPayments],
+      [],
+      ["Daily registrations", "Count"],
+      ...registrationTrend.map((point) => [point.date, point.count]),
+    ];
+    const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    const blobUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = `campusgig-operations-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
+  };
 
   return (
     <RealAdminLayout>
@@ -10619,15 +10676,27 @@ function AdminOverviewPage() {
         title="Marketplace overview"
         description="Live account, verification, and marketplace activity. Administrator identities are excluded from member counts."
         action={
-          <button
-            type="button"
-            className="btn btn-secondary bg-white"
-            onClick={() => void loadOverview()}
-            disabled={loading}
-          >
-            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="sr-only" htmlFor="admin-trend-range">Registration trend range</label>
+            <select id="admin-trend-range" className="admin-menu-button focus-ring min-h-10 rounded-md border px-3 text-xs font-medium" value={trendRange} onChange={(event) => setTrendRange(Number(event.target.value) as 7 | 14)}>
+              <option value={7}>Past 7 days</option>
+              <option value={14}>Past 14 days</option>
+            </select>
+            <button type="button" className="admin-menu-button focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold" onClick={exportReport} disabled={!metrics}>
+              <Download className="size-3.5" aria-hidden="true" />
+              Export report
+            </button>
+            <button
+              type="button"
+              className="admin-menu-button focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold"
+              onClick={() => void loadOverview()}
+              disabled={loading}
+              aria-busy={loading}
+            >
+              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+              Refresh
+            </button>
+          </div>
         }
       />
       {error && (
@@ -10729,7 +10798,7 @@ function AdminOverviewPage() {
                 <div>
                   <h2 className="font-bold">Registration trend</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Daily marketplace accounts over the last 14 days.
+                    Daily marketplace account registrations.
                   </p>
                 </div>
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
@@ -10737,13 +10806,14 @@ function AdminOverviewPage() {
                 </span>
               </div>
               <div
-                className="mt-8 grid h-52 grid-cols-[repeat(14,minmax(0,1fr))] items-end gap-1.5 border-b border-slate-200 sm:gap-2"
+                className="mt-8 grid h-52 items-end gap-1.5 border-b border-slate-200 sm:gap-2"
+                style={{ gridTemplateColumns: `repeat(${registrationTrend.length}, minmax(0, 1fr))` }}
                 role="img"
-                aria-label={`Registration chart. ${metrics.dailyRegistrations
+                aria-label={`Registration chart. ${registrationTrend
                   .map((point) => `${point.date}: ${point.count}`)
                   .join(", ")}`}
               >
-                {metrics.dailyRegistrations.map((point, index) => (
+                {registrationTrend.map((point, index) => (
                   <div
                     key={point.date}
                     className="group flex h-full min-w-0 flex-col justify-end"
@@ -10757,8 +10827,8 @@ function AdminOverviewPage() {
                       style={{ height: `${Math.max(3, (point.count / dailyMaximum) * 100)}%` }}
                       aria-hidden="true"
                     />
-                    <span className="mt-2 text-center text-[9px] text-slate-400">
-                      {index === 0 || index === 6 || index === 13
+                    <span className="mt-2 text-center text-[10px] text-slate-400">
+                      {index === 0 || index === Math.floor((registrationTrend.length - 1) / 2) || index === registrationTrend.length - 1
                         ? new Date(`${point.date}T00:00:00Z`).toLocaleDateString("en", {
                             month: "short",
                             day: "numeric",
@@ -10921,7 +10991,7 @@ function AdminOverviewPage() {
                   <h2 id="recent-activity-heading" className="font-bold">Recent admin activity</h2>
                   <p className="mt-1 text-xs text-slate-500">A safe, chronological view of recorded operations actions.</p>
                 </div>
-                <Link href="/admin/security" className="text-xs font-semibold text-emerald-800 underline underline-offset-4">Open audit controls</Link>
+                <Link href="/admin/security" className="text-xs font-semibold text-emerald-800 underline underline-offset-4">Account security settings</Link>
               </div>
               {metrics.recentActivity.length ? (
                 <div className="mt-5 divide-y divide-slate-100 rounded-lg border border-slate-200">
@@ -11863,6 +11933,7 @@ function AdminUsersPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "verified" | "review" | "suspended">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedUid, setSelectedUid] = useState("");
@@ -11898,11 +11969,29 @@ function AdminUsersPage() {
     return () => window.clearTimeout(loadTimer);
   }, [loadUsers]);
 
-  const filteredUsers = users.filter((item) =>
-    `${item.fullName} ${item.username} ${item.email} ${item.university}`
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredUsers = users.filter((item) => {
+    const matchesSearch = `${item.fullName} ${item.username} ${item.email} ${item.university}`
       .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+      .includes(normalizedQuery);
+    const matchesStatus = statusFilter === "all"
+      || (statusFilter === "verified" && item.studentVerified)
+      || (statusFilter === "review" && !item.studentVerified && /(pending|submitted)/i.test(item.verificationStatus))
+      || (statusFilter === "suspended" && item.disabled);
+    return matchesSearch && matchesStatus;
+  });
+  const userFilters = [
+    ["all", "All users", users.length],
+    ["verified", "Verified students", users.filter((item) => item.studentVerified).length],
+    ["review", "Needs review", users.filter((item) => !item.studentVerified && /(pending|submitted)/i.test(item.verificationStatus)).length],
+    ["suspended", "Suspended", users.filter((item) => item.disabled).length],
+  ] as const;
+  const accountSummary: Array<{ label: string; value: number; Icon: typeof UsersRound }> = [
+    { label: "Total members", value: users.length, Icon: UsersRound },
+    { label: "Email verified", value: users.filter((item) => item.emailVerified).length, Icon: MailCheck },
+    { label: "Verified students", value: users.filter((item) => item.studentVerified).length, Icon: BadgeCheck },
+    { label: "Awaiting review", value: users.filter((item) => !item.studentVerified && /(pending|submitted)/i.test(item.verificationStatus)).length, Icon: UserCheck },
+  ];
   const updateDecision = (uid: string, status: string) => {
     setUsers((current) =>
       current.map((item) =>
@@ -11926,21 +12015,60 @@ function AdminUsersPage() {
     <RealAdminLayout>
       <AdminPageHeader
         title="Registered users"
-        description="Click any user to open their full account and review a submitted student verification."
-        action={
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-3 size-4 text-slate-500" />
-            <input
-              className="input min-h-11 w-full bg-white pl-9 text-sm sm:w-64"
-              type="search"
-              placeholder="Search users"
-              aria-label="Search users"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        }
+        description="Review member accounts, identity checks, and access status across the marketplace."
       />
+      <section className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="User account summary">
+        {loading && users.length === 0
+          ? accountSummary.map(({ label }) => (
+              <div key={label} className="admin-panel grid min-h-[104px] content-between rounded-lg border p-4 sm:p-5" aria-hidden="true">
+                <span className="h-3 w-24 animate-pulse rounded bg-white/[0.08]" />
+                <span className="h-7 w-16 animate-pulse rounded bg-white/[0.08]" />
+              </div>
+            ))
+          : accountSummary.map(({ label, value, Icon }) => (
+              <article key={label} className="admin-panel rounded-lg border p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium text-slate-400">{label}</p>
+                  <Icon className="size-4 text-emerald-300" aria-hidden="true" />
+                </div>
+                <p className="mt-3 font-mono text-2xl font-semibold tabular-nums text-slate-100">{value.toLocaleString()}</p>
+              </article>
+            ))}
+      </section>
+      <section className="admin-data-toolbar mt-5 rounded-lg p-3 sm:p-4" aria-label="Filter and search users">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter users by account status">
+            {userFilters.map(([value, label, count]) => (
+              <button
+                type="button"
+                key={value}
+                className="admin-filter focus-ring inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-xs font-medium text-slate-300 transition-colors duration-150 ease-out hover:bg-white/[0.06]"
+                aria-pressed={statusFilter === value}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}<span className="font-mono text-[11px] text-slate-400">{count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-3 size-4 text-slate-400" aria-hidden="true" />
+              <input
+                className="input min-h-10 w-full pl-9 text-sm"
+                type="search"
+                placeholder="Search name, email, school…"
+                aria-label="Search registered users"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+            <button type="button" className="admin-menu-button focus-ring inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold" onClick={() => void loadUsers()} disabled={loading} aria-busy={loading}>
+              <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
+        </div>
+      </section>
       {error && (
         <div
           className="mt-7 rounded-xl border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-800"
@@ -11968,8 +12096,8 @@ function AdminUsersPage() {
       ) : (
         !error && (
           <>
-            <div className="table-wrap mt-7 border-slate-200">
-              <table className="data-table min-w-[980px]">
+            <div className="table-wrap mt-4 hidden border-slate-200 md:block">
+              <table className="data-table">
                 <thead>
                   <tr>
                     <th>User</th>
@@ -12048,28 +12176,40 @@ function AdminUsersPage() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-400">
               <p>
-                Showing {filteredUsers.length} of {users.length} registered
-                users
+                Showing <span className="font-mono tabular-nums text-slate-200">{filteredUsers.length}</span> of <span className="font-mono tabular-nums text-slate-200">{users.length}</span> members
               </p>
-              <button
-                type="button"
-                className="btn btn-secondary bg-white"
-                onClick={loadUsers}
-              >
-                Refresh
-              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:hidden">
+              {filteredUsers.map((item) => (
+                <button key={item.uid} type="button" className="admin-panel focus-ring w-full rounded-lg border p-4 text-left transition-colors duration-150 ease-out hover:bg-white/[0.04]" onClick={() => setSelectedUid(item.uid)}>
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-slate-100">{item.fullName}</span>
+                      <span className="mt-1 block truncate text-xs text-slate-400">{item.username ? `@${item.username} · ` : ""}{item.email}</span>
+                    </span>
+                    <ArrowRight className="mt-1 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  </span>
+                  <span className="mt-4 flex flex-wrap gap-2">
+                    <span className={`status ${item.studentVerified ? "status-completed" : "status-submitted"}`}>{item.studentVerified ? "Verified student" : item.verificationStatus}</span>
+                    <span className={`status ${item.disabled ? "status-rejected" : "status-applied"}`}>{item.disabled ? "Suspended" : "Active"}</span>
+                  </span>
+                  <span className="mt-3 block truncate text-xs text-slate-400">{item.university} · Last sign-in {adminDate(item.lastSignInAt)}</span>
+                </button>
+              ))}
             </div>
             {filteredUsers.length === 0 && (
-              <div className="mt-6 rounded-xl border border-slate-200 bg-white p-10 text-center">
+              <div className="admin-panel mt-4 rounded-lg border p-10 text-center">
                 <UsersRound className="mx-auto size-8 text-slate-400" />
                 <p className="mt-4 font-semibold">
-                  {query
-                    ? "No registered users match this search."
+                  {query || statusFilter !== "all"
+                    ? "No users match these filters."
                     : "No marketplace users yet."}
                 </p>
-                {!query && (
+                {query || statusFilter !== "all" ? (
+                  <button type="button" className="btn btn-secondary mt-4" onClick={() => { setQuery(""); setStatusFilter("all"); }}>Clear filters</button>
+                ) : (
                   <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
                     New client and student accounts will appear here after they
                     sign up.
